@@ -15,7 +15,7 @@ import {
   startAfter,
   getDocs
 } from 'firebase/firestore';
-import { db } from '../Config/firebase.js';
+import { db } from '../config/firebase.js';
 import { useToast } from '../contexts/ToastContext';
 
 export const useInterventions = (user, options = {}) => {

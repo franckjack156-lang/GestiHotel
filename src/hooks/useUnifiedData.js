@@ -13,7 +13,7 @@ import {
   serverTimestamp,
   getDocs
 } from 'firebase/firestore';
-import { db } from '../Config/firebase';
+import { db } from '../config/firebase';
 import { useToast } from '../contexts/ToastContext';
 
 /**

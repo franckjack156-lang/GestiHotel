@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   limit
 } from 'firebase/firestore';
-import { db } from '../Config/firebase';
+import { db } from '../config/firebase';
 import { useAuth } from './AuthContext';
 import { Bell } from 'lucide-react';
 

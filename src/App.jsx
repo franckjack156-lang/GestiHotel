@@ -7,7 +7,7 @@ import { AppProvider, useApp } from './contexts/AppContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 
 // Analytics Firebase uniquement
-import { setAnalyticsUser, analyticsEvents } from './Config/firebase';
+import { setAnalyticsUser, analyticsEvents } from './config/firebase';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
 // ✅ CORRECTION : Déplacer TOUS les hooks en premier, AVANT toute condition

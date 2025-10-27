@@ -13,7 +13,7 @@ import {
   updateDoc,
   serverTimestamp 
 } from 'firebase/firestore';
-import { auth, db } from '../Config/firebase';
+import { auth, db } from '../config/firebase';
 
 const AuthContext = createContext();
 
