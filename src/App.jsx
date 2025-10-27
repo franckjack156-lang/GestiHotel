@@ -20,7 +20,6 @@ import { useUserManagement } from './hooks/useUserManagement';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import NotificationPanel from './components/Notifications/NotificationPanel';
-import AdvancedSearchView from './components/Search/AdvancedSearchView';
 
 // Vues
 import DashboardView from './components/Dashboard/DashboardView';
@@ -28,8 +27,6 @@ import InterventionsView from './components/Interventions/InterventionsView';
 import AnalyticsView from './components/Analytics/AnalyticsView';
 import AdvancedAnalytics from './components/Dashboard/AdvancedAnalytics';
 import UsersManagementView from './components/Users/UsersManagementView';
-import CalendarView from './components/Planning/CalendarView';
-import ChatView from './components/Chat/ChatView';
 
 // Modals
 import AuthScreen from './components/Auth/AuthScreen';
@@ -268,39 +265,6 @@ const AppContent = () => {
               <AdvancedAnalytics
                 interventions={interventions}
                 users={users}
-              />
-            )}
-
-            {/* Calendrier/Planning */}
-            {currentView === 'calendar' && (
-              <CalendarView
-                interventions={interventions}
-                users={users}
-                onInterventionClick={handleInterventionClick}
-                onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
-                onDragDrop={async (interventionId, newDate) => {
-                  await handleUpdateIntervention(interventionId, { 
-                    scheduledDate: newDate 
-                  });
-                }}
-              />
-            )}
-
-            {/* Chat */}
-            {currentView === 'chat' && (
-              <ChatView
-                user={user}
-                users={users}
-              />
-            )}
-
-            {/* Recherche Avancée */}
-            {currentView === 'search' && (
-              <AdvancedSearchView
-                interventions={interventions}
-                users={users}
-                data={data}
-                onInterventionClick={handleInterventionClick}
               />
             )}
 

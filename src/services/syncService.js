@@ -1,3 +1,5 @@
+// src/services/syncService.js - VERSION UNIFIÉE (offlineService intégré)
+
 import { 
   collection, 
   doc,
@@ -10,10 +12,112 @@ import {
   serverTimestamp,
   writeBatch
 } from 'firebase/firestore';
-import { db } from '../Config/firebase';
-import { offlineService } from './offlineService';
+import { db } from '../config/firebase';
+
+// ========================================
+// 📦 PARTIE 1 : GESTION OFFLINE (ex-offlineService)
+// ========================================
+
+const offlineStorage = {
+  /**
+   * Sauvegarder des données localement
+   */
+  saveData(key, data) {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+      return true;
+    } catch (error) {
+      console.error('❌ Erreur sauvegarde hors ligne:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Charger des données sauvegardées
+   */
+  loadData(key, defaultValue = null) {
+    try {
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : defaultValue;
+    } catch (error) {
+      console.error('❌ Erreur chargement données hors ligne:', error);
+      return defaultValue;
+    }
+  },
+
+  /**
+   * Obtenir les actions en attente
+   */
+  getPendingActions() {
+    return this.loadData('pendingActions', []);
+  },
+
+  /**
+   * Sauvegarder une action en attente
+   */
+  savePendingAction(action) {
+    const pendingActions = this.getPendingActions();
+    const newAction = {
+      ...action,
+      id: `pending_${Date.now()}`,
+      timestamp: new Date().toISOString()
+    };
+    
+    pendingActions.push(newAction);
+    this.saveData('pendingActions', pendingActions);
+    return newAction;
+  },
+
+  /**
+   * Charger les actions en attente (alias pour compatibilité)
+   */
+  loadPendingActions() {
+    return this.getPendingActions();
+  },
+
+  /**
+   * Supprimer une action en attente
+   */
+  removePendingAction(actionId) {
+    const pendingActions = this.getPendingActions();
+    const filteredActions = pendingActions.filter(action => action.id !== actionId);
+    this.saveData('pendingActions', filteredActions);
+    return true;
+  },
+
+  /**
+   * Vider les actions en attente
+   */
+  clearPendingActions() {
+    this.saveData('pendingActions', []);
+    return true;
+  },
+
+  /**
+   * Vider toutes les données hors ligne
+   */
+  clearAllData() {
+    try {
+      localStorage.removeItem('pendingActions');
+      localStorage.removeItem('offlineInterventions');
+      localStorage.removeItem('offlineBlockedRooms');
+      localStorage.removeItem('lastSyncTimestamp');
+      return true;
+    } catch (error) {
+      console.error('❌ Erreur suppression données hors ligne:', error);
+      return false;
+    }
+  }
+};
+
+// ========================================
+// 🔄 PARTIE 2 : SYNCHRONISATION
+// ========================================
 
 export const syncService = {
+  // ✅ Exposer les fonctions offline pour rétro-compatibilité
+  offline: offlineStorage,
+
   /**
    * Synchroniser toutes les données utilisateur
    * @param {string} userId - ID de l'utilisateur
@@ -25,13 +129,13 @@ export const syncService = {
       let syncedCount = 0;
 
       // 1. Synchroniser les actions en attente
-      const pendingActions = offlineService.loadPendingActions();
+      const pendingActions = offlineStorage.loadPendingActions();
       
       if (pendingActions.length > 0) {
         for (const action of pendingActions) {
           const result = await this.executePendingAction(action, userId);
           if (result.success) {
-            offlineService.removePendingAction(action.id);
+            offlineStorage.removePendingAction(action.id);
             syncedCount++;
           }
         }
@@ -57,7 +161,7 @@ export const syncService = {
 
       return { success: true, synced: syncedCount };
     } catch (error) {
-      console.error('Erreur syncAllData:', error);
+      console.error('❌ Erreur syncAllData:', error);
       return { success: false, error: error.message };
     }
   },
@@ -84,11 +188,11 @@ export const syncService = {
           return await this.toggleRoomBlockOnServer(action.room, action.reason, userId);
           
         default:
-          console.warn('Type d\'action inconnu:', action.type);
+          console.warn('⚠️ Type d\'action inconnu:', action.type);
           return { success: false, error: 'Type d\'action inconnu' };
       }
     } catch (error) {
-      console.error('Erreur executePendingAction:', error);
+      console.error('❌ Erreur executePendingAction:', error);
       return { success: false, error: error.message };
     }
   },
@@ -113,7 +217,7 @@ export const syncService = {
       
       return { success: true };
     } catch (error) {
-      console.error('Erreur syncIntervention:', error);
+      console.error('❌ Erreur syncIntervention:', error);
       return { success: false, error: error.message };
     }
   },
@@ -137,7 +241,7 @@ export const syncService = {
       
       return { success: true };
     } catch (error) {
-      console.error('Erreur updateInterventionOnServer:', error);
+      console.error('❌ Erreur updateInterventionOnServer:', error);
       return { success: false, error: error.message };
     }
   },
@@ -161,7 +265,7 @@ export const syncService = {
       
       return { success: true };
     } catch (error) {
-      console.error('Erreur deleteInterventionOnServer:', error);
+      console.error('❌ Erreur deleteInterventionOnServer:', error);
       return { success: false, error: error.message };
     }
   },
@@ -187,7 +291,7 @@ export const syncService = {
       
       return { success: true };
     } catch (error) {
-      console.error('Erreur toggleRoomBlockOnServer:', error);
+      console.error('❌ Erreur toggleRoomBlockOnServer:', error);
       return { success: false, error: error.message };
     }
   },
@@ -214,7 +318,7 @@ export const syncService = {
       });
 
       // Sauvegarder localement pour le mode hors ligne
-      offlineService.saveData('offlineInterventions', interventions);
+      offlineStorage.saveData('offlineInterventions', interventions);
 
       // Récupérer les chambres bloquées
       const blockedRoomsQuery = query(
@@ -229,14 +333,14 @@ export const syncService = {
         blockedRooms.push({ id: doc.id, ...doc.data() });
       });
 
-      offlineService.saveData('offlineBlockedRooms', blockedRooms);
+      offlineStorage.saveData('offlineBlockedRooms', blockedRooms);
 
       return { 
         success: true, 
         data: { interventions, blockedRooms } 
       };
     } catch (error) {
-      console.error('Erreur fetchServerData:', error);
+      console.error('❌ Erreur fetchServerData:', error);
       return { success: false, error: error.message };
     }
   },
@@ -254,9 +358,9 @@ export const syncService = {
       });
       
       // Sauvegarder également localement
-      offlineService.saveData('lastSyncTimestamp', new Date().toISOString());
+      offlineStorage.saveData('lastSyncTimestamp', new Date().toISOString());
     } catch (error) {
-      console.error('Erreur updateLastSyncTimestamp:', error);
+      console.error('❌ Erreur updateLastSyncTimestamp:', error);
     }
   },
 
@@ -308,7 +412,7 @@ export const syncService = {
             batch.delete(ref);
             break;
           default:
-            console.warn('Type d\'opération inconnu:', type);
+            console.warn('⚠️ Type d\'opération inconnu:', type);
         }
       }
 
@@ -316,7 +420,7 @@ export const syncService = {
       
       return { success: true };
     } catch (error) {
-      console.error('Erreur batchSync:', error);
+      console.error('❌ Erreur batchSync:', error);
       return { success: false, error: error.message };
     }
   },
@@ -327,13 +431,13 @@ export const syncService = {
    * @returns {Promise<boolean>}
    */
   async needsSync(userId) {
-    const pendingActions = offlineService.loadPendingActions();
+    const pendingActions = offlineStorage.getPendingActions();
     
     if (pendingActions.length > 0) {
       return true;
     }
 
-    const lastSyncStr = offlineService.loadData('lastSyncTimestamp');
+    const lastSyncStr = offlineStorage.loadData('lastSyncTimestamp');
     
     if (!lastSyncStr) {
       return true;
@@ -347,3 +451,6 @@ export const syncService = {
     return hoursSinceLastSync > 1;
   }
 };
+
+// ✅ Export pour rétro-compatibilité
+export const offlineService = offlineStorage;
