@@ -1,16 +1,34 @@
-// src/App.jsx - VERSION CORRIGÉE ET COMPLÈTE
+// src/App.jsx - VERSION CORRIGÉE COMPLÈTE
 
 import React, { useState, useEffect } from 'react';
+
+// ✅ IMPORTS FIREBASE MANQUANTS
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot,
+  addDoc,
+  updateDoc,
+  doc,
+  deleteDoc,
+  serverTimestamp,
+  getDocs
+} from 'firebase/firestore';
+import { db } from './config/firebase';
+
+// Contexts
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider, useToast } from './contexts/ToastContext';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 
-// Analytics Firebase
+// Analytics
 import { setAnalyticsUser, analyticsEvents } from './config/firebase';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
-// ✅ HOOKS - Tous en premier
+// Hooks
 import { useUnifiedData } from './hooks/useUnifiedData';
 import { useSettings } from './hooks/useSettings';
 
@@ -34,11 +52,9 @@ import UnifiedAdminModal from './components/Admin/UnifiedAdminModal';
 import CreateInterventionModal from './components/Interventions/CreateInterventionModal';
 import InterventionDetailModal from './components/Interventions/InterventionDetailModal';
 import SettingsModal from './components/Settings/SettingsModal';
-
-// ✅ CORRECTION : Import des bons composants utilisateurs
 import UnifiedUserModal from './components/Users/UnifiedUserModal';
 
-// ✅ SERVICES
+// Services
 import { 
   interventionService, 
   userService,
@@ -57,7 +73,7 @@ const AppContent = () => {
     setIsSettingsModalOpen
   } = useApp();
 
-  // ========== HOOKS DE DONNÉES ==========
+  // Hooks de données
   const {
     data,
     loading: dataLoading,
@@ -71,7 +87,7 @@ const AppContent = () => {
 
   const { settings, updateSettings, resetSettings } = useSettings(user);
 
-  // ========== ÉTAT LOCAL ==========
+  // États locaux
   const [interventions, setInterventions] = useState([]);
   const [blockedRooms, setBlockedRooms] = useState([]);
   const [users, setUsers] = useState([]);
@@ -85,8 +101,7 @@ const AppContent = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   
-  // ✅ CORRECTION : États pour modals unifiées
-  const [userModalMode, setUserModalMode] = useState('create'); // 'create', 'edit', 'password'
+  const [userModalMode, setUserModalMode] = useState('create');
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
 
   // ========== CHARGEMENT DES DONNÉES ==========
@@ -96,85 +111,99 @@ const AppContent = () => {
       return;
     }
 
+    console.log('🔄 Chargement des données pour:', user.email, 'Role:', user.role);
+
+    const unsubscribers = [];
+
     // Charger interventions
-    const loadInterventions = async () => {
-      try {
-        const q = query(
-          collection(db, 'interventions'),
-          orderBy('createdAt', 'desc')
-        );
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+    try {
+      const interventionsQuery = query(
+        collection(db, 'interventions'),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const unsubInterventions = onSnapshot(
+        interventionsQuery,
+        (snapshot) => {
           const data = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
             createdAt: doc.data().createdAt?.toDate() || new Date()
           }));
+          console.log('✅ Interventions chargées:', data.length);
           setInterventions(data);
-        });
-
-        return unsubscribe;
-      } catch (error) {
-        console.error('Erreur chargement interventions:', error);
-        addToast({ type: 'error', message: 'Erreur chargement des interventions' });
-      }
-    };
+        },
+        (error) => {
+          console.error('❌ Erreur interventions:', error);
+          addToast({ 
+            type: 'error', 
+            message: 'Erreur de chargement des interventions. Vérifiez les permissions Firestore.' 
+          });
+        }
+      );
+      unsubscribers.push(unsubInterventions);
+    } catch (error) {
+      console.error('❌ Erreur setup interventions:', error);
+    }
 
     // Charger utilisateurs
-    const loadUsers = async () => {
-      try {
-        const q = query(collection(db, 'users'));
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+    try {
+      const usersQuery = query(collection(db, 'users'));
+      
+      const unsubUsers = onSnapshot(
+        usersQuery,
+        (snapshot) => {
           const data = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           }));
+          console.log('✅ Utilisateurs chargés:', data.length);
           setUsers(data);
-        });
-
-        return unsubscribe;
-      } catch (error) {
-        console.error('Erreur chargement utilisateurs:', error);
-      }
-    };
+        },
+        (error) => {
+          console.error('❌ Erreur utilisateurs:', error);
+        }
+      );
+      unsubscribers.push(unsubUsers);
+    } catch (error) {
+      console.error('❌ Erreur setup utilisateurs:', error);
+    }
 
     // Charger chambres bloquées
-    const loadBlockedRooms = async () => {
-      try {
-        const q = query(
-          collection(db, 'blockedRooms'),
-          where('blocked', '==', true)
-        );
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+    try {
+      const roomsQuery = query(
+        collection(db, 'blockedRooms'),
+        where('blocked', '==', true)
+      );
+      
+      const unsubRooms = onSnapshot(
+        roomsQuery,
+        (snapshot) => {
           const data = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           }));
+          console.log('✅ Chambres bloquées chargées:', data.length);
           setBlockedRooms(data);
-        });
-
-        return unsubscribe;
-      } catch (error) {
-        console.error('Erreur chargement chambres bloquées:', error);
-      }
-    };
-
-    const unsubscribeInterventions = loadInterventions();
-    const unsubscribeUsers = loadUsers();
-    const unsubscribeRooms = loadBlockedRooms();
+        },
+        (error) => {
+          console.error('❌ Erreur chambres bloquées:', error);
+        }
+      );
+      unsubscribers.push(unsubRooms);
+    } catch (error) {
+      console.error('❌ Erreur setup chambres:', error);
+    }
 
     setLoading(false);
 
+    // Cleanup
     return () => {
-      unsubscribeInterventions?.then(unsub => unsub?.());
-      unsubscribeUsers?.then(unsub => unsub?.());
-      unsubscribeRooms?.then(unsub => unsub?.());
+      unsubscribers.forEach(unsub => unsub());
     };
-  }, [user]);
+  }, [user, addToast]);
 
-  // ========== ANALYTICS ==========
+  // Analytics
   useEffect(() => {
     if (user) {
       setAnalyticsUser(user.uid, {
@@ -198,7 +227,6 @@ const AppContent = () => {
 
   const handleCreateIntervention = async (interventionData, photos) => {
     try {
-      // Upload photos si présentes
       let photoUrls = [];
       if (photos && photos.length > 0) {
         const uploadResults = await storageService.uploadMultiple(
@@ -210,7 +238,6 @@ const AppContent = () => {
         }
       }
 
-      // Créer l'intervention
       const result = await interventionService.create(
         {
           ...interventionData,
@@ -240,7 +267,6 @@ const AppContent = () => {
 
   const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
     try {
-      // Upload nouvelles photos
       let newPhotoUrls = [];
       if (photos && photos.length > 0) {
         const uploadResults = await storageService.uploadMultiple(
@@ -252,7 +278,6 @@ const AppContent = () => {
         }
       }
 
-      // Mettre à jour
       const result = await interventionService.update(
         interventionId,
         {
@@ -286,14 +311,12 @@ const AppContent = () => {
       const roomDoc = blockedRooms.find(r => r.room === room);
       
       if (roomDoc) {
-        // Débloquer
         await updateDoc(doc(db, 'blockedRooms', roomDoc.id), {
           blocked: false,
           unblockedAt: serverTimestamp(),
           unblockedBy: user.uid
         });
       } else {
-        // Bloquer
         await addDoc(collection(db, 'blockedRooms'), {
           room,
           reason,
@@ -424,7 +447,7 @@ const AppContent = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Chargement...</p>
+          <p className="text-gray-600 dark:text-gray-400">Chargement de l'application...</p>
         </div>
       </div>
     );
@@ -434,7 +457,7 @@ const AppContent = () => {
     return <AuthScreen />;
   }
 
-  // ========== STATS POUR ANALYTICS ==========
+  // Stats pour analytics
   const analyticsStats = {
     totalInterventions: interventions.length,
     completedThisMonth: interventions.filter(i => 
@@ -446,7 +469,7 @@ const AppContent = () => {
     roomIssueFrequency: []
   };
 
-  // ========== RENDU ==========
+  // ========== RENDU PRINCIPAL ==========
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
       {/* Overlay mobile */}
@@ -489,7 +512,7 @@ const AppContent = () => {
 
         <main className="flex-1 overflow-y-auto">
           <div className="px-4 sm:px-6 lg:px-8 py-6">
-            {/* Dashboard */}
+            {/* VUES */}
             {currentView === 'dashboard' && (
               <DashboardView
                 interventions={interventions}
@@ -498,7 +521,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Interventions */}
             {currentView === 'interventions' && (
               <InterventionsView
                 interventions={interventions}
@@ -511,7 +533,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Analytics */}
             {currentView === 'analytics' && (
               <AnalyticsView
                 stats={analyticsStats}
@@ -519,15 +540,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Analytics Avancés */}
-            {currentView === 'advanced-analytics' && (
-              <AdvancedAnalytics
-                interventions={interventions}
-                users={users}
-              />
-            )}
-
-            {/* Gestion utilisateurs */}
             {currentView === 'users' && user.role === 'superadmin' && (
               <UsersManagementView
                 users={users}
@@ -539,7 +551,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Gestion des données */}
             {currentView === 'data-management' && user.role === 'superadmin' && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -559,34 +570,22 @@ const AppContent = () => {
                   </button>
                 </div>
 
-                {/* Stats rapides */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Localisations</div>
-                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
-                      {data.locations?.length || 0}
-                    </div>
+                    <div className="text-2xl font-bold">{data.locations?.length || 0}</div>
                   </div>
-
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Techniciens</div>
-                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
-                      {data.technicians?.length || 0}
-                    </div>
+                    <div className="text-2xl font-bold">{data.technicians?.length || 0}</div>
                   </div>
-
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Fournisseurs</div>
-                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
-                      {data.suppliers?.length || 0}
-                    </div>
+                    <div className="text-2xl font-bold">{data.suppliers?.length || 0}</div>
                   </div>
-
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Équipements</div>
-                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
-                      {data.equipment?.length || 0}
-                    </div>
+                    <div className="text-2xl font-bold">{data.equipment?.length || 0}</div>
                   </div>
                 </div>
               </div>
@@ -595,15 +594,13 @@ const AppContent = () => {
         </main>
       </div>
 
-      {/* Panel de Notifications */}
+      {/* Notifications */}
       <NotificationPanel
         isOpen={isNotificationPanelOpen}
         onClose={() => setIsNotificationPanelOpen(false)}
       />
 
-      {/* ========== MODALS ========== */}
-      
-      {/* Créer intervention */}
+      {/* MODALS */}
       {isCreateInterventionModalOpen && (
         <CreateInterventionModal
           isOpen={isCreateInterventionModalOpen}
@@ -618,7 +615,6 @@ const AppContent = () => {
         />
       )}
         
-      {/* Détail intervention */}
       {selectedIntervention && (
         <InterventionDetailModal
           intervention={selectedIntervention}
@@ -629,7 +625,6 @@ const AppContent = () => {
         />
       )}
 
-      {/* Gestion données admin */}
       {isAdminModalOpen && (
         <UnifiedAdminModal
           isOpen={isAdminModalOpen}
@@ -643,7 +638,6 @@ const AppContent = () => {
         />
       )}
 
-      {/* Paramètres */}
       {isSettingsModalOpen && (
         <SettingsModal
           isOpen={isSettingsModalOpen}
@@ -654,7 +648,6 @@ const AppContent = () => {
         />
       )}
 
-      {/* ✅ CORRECTION : Modal utilisateur unifiée */}
       {isUserModalOpen && (
         <UnifiedUserModal
           isOpen={isUserModalOpen}
