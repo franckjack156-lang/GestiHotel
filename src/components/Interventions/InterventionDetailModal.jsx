@@ -1,625 +1,602 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  X, MapPin, User, MessageSquare, Clock, Calendar, 
-  Camera, MessageCircle, Send, Package, AlertCircle,
-  Edit3, Save, Trash2, Home, Users, Hammer
-} from 'lucide-react';
-import { useToast } from '../../contexts/ToastContext';
-import { arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { X, Calendar, User, MapPin, FileText, Package, MessageSquare, Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+
+// ✅ FONCTION HELPER POUR FORMATER LES TIMESTAMPS
+const formatTimestamp = (timestamp) => {
+  try {
+    if (!timestamp) return 'Date inconnue';
+    
+    // Si c'est un timestamp Firestore
+    if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+      return timestamp.toDate().toLocaleString('fr-FR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+    
+    // Si c'est une Date JavaScript
+    if (timestamp instanceof Date) {
+      return timestamp.toLocaleString('fr-FR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+    
+    // Si c'est un string ou un nombre
+    const date = new Date(timestamp);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleString('fr-FR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+    
+    return 'Date invalide';
+  } catch (error) {
+    console.error('Erreur formatage date:', error);
+    return 'Date invalide';
+  }
+};
+
+// ✅ FONCTION HELPER POUR FORMATER LA DATE COURTE
+const formatShortDate = (timestamp) => {
+  try {
+    if (!timestamp) return '';
+    
+    let date;
+    if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+      date = timestamp.toDate();
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      date = new Date(timestamp);
+    }
+    
+    if (isNaN(date.getTime())) return '';
+    
+    return date.toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  } catch (error) {
+    return '';
+  }
+};
 
 const InterventionDetailModal = ({ 
   intervention, 
   onClose, 
-  onUpdateIntervention, 
-  onToggleRoomBlock,
-  user 
+  onUpdate, 
+  onSendMessage,
+  user,
+  users = [],
+  onAddSupply,
+  onRemoveSupply,
+  onToggleSupplyStatus
 }) => {
-  const [techComment, setTechComment] = useState(intervention?.techComment || '');
-  const [newStatus, setNewStatus] = useState(intervention?.status || 'todo');
-  const [newMessage, setNewMessage] = useState('');
   const [activeTab, setActiveTab] = useState('details');
-  const [imageErrors, setImageErrors] = useState({});
-  const { addToast } = useToast();
-  const [localMessages, setLocalMessages] = useState(intervention?.messages || []);
+  const [newMessage, setNewMessage] = useState('');
+  const [newSupply, setNewSupply] = useState({ name: '', quantity: '', unit: 'pièce' });
+  const [techComment, setTechComment] = useState(intervention?.techComment || '');
+  const [selectedPhotos, setSelectedPhotos] = useState([]);
+  const [previewPhotos, setPreviewPhotos] = useState([]);
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
-  
+  const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    if (activeTab === 'messages' && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (activeTab === 'messages') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [localMessages, activeTab]);
+  }, [activeTab, intervention?.messages]);
 
-  // Mettre à jour localMessages quand intervention change
-  useEffect(() => {
-  if (intervention?.messages) {
-    setLocalMessages(prev => {
-      // Merger intelligemment au lieu d'écraser
-      const newMessages = intervention.messages.filter(
-        msg => !prev.find(p => p.id === msg.id)
-      );
-      return [...prev, ...newMessages].sort((a, b) => 
-        a.timestamp - b.timestamp
-      );
-    });
-  }
-}, [intervention?.messages]);
-
-  if (!intervention) return null;
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'todo': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-      case 'inprogress': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-      case 'ordering': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
-      case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
-      default: return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-    }
-  };
-
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'todo': return 'À faire';
-      case 'inprogress': return 'En cours';
-      case 'ordering': return 'En commande';
-      case 'completed': return 'Terminée';
-      default: return 'Annulée';
-    }
-  };
-
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'urgent': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-      case 'high': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
-      case 'normal': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-      default: return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
-    }
-  };
-
-  const handleStatusUpdate = async () => {
-    const result = await onUpdateIntervention(intervention.id, {
-      techComment,
-      status: newStatus,
-      statusComment: `Statut changé à ${newStatus}`
-    });
+  const handlePhotoSelect = (e) => {
+    const files = Array.from(e.target.files);
+    setSelectedPhotos(prev => [...prev, ...files]);
     
-    if (result.success) {
-      addToast({
-        type: 'success',
-        title: 'Statut mis à jour',
-        message: 'L\'intervention a été mise à jour'
-      });
-    }
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewPhotos(prev => [...prev, reader.result]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleRemovePhoto = (index) => {
+    setSelectedPhotos(prev => prev.filter((_, i) => i !== index));
+    setPreviewPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() && selectedPhotos.length === 0) return;
 
-    const newMessageObj = {
-      id: `msg_${Date.now()}`,
-      text: newMessage.trim(),
-      type: 'text',
-      senderId: user.uid,
-      senderName: user.name || user.email,
-      timestamp: serverTimestamp(),
-      read: false
-    };
-
-    // Mise à jour immédiate de l'état local
-    setLocalMessages(prev => [...prev, newMessageObj]);
-    setNewMessage('');
-
-    // Mise à jour Firestore
-    const result = await onUpdateIntervention(intervention.id, {
-      messages: arrayUnion(newMessageObj)
-    });
-
-    if (result.success) {
-      addToast({
-        type: 'success',
-        title: 'Message envoyé',
-        message: 'Votre message a été envoyé'
-      });
-    } else {
-      // Revenir en arrière en cas d'erreur
-      setLocalMessages(prev => prev.filter(msg => msg.id !== newMessageObj.id));
-      addToast({
-        type: 'error',
-        title: 'Erreur',
-        message: 'Impossible d\'envoyer le message'
-      });
-    }
-  };
-  const formatDate = (date) => {
-  if (!date) return '—';
-  const d = date.toDate ? date.toDate() : new Date(date);
-  return d.toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-};
-
-  const handleBlockRoom = async () => {
-    const reason = prompt('Raison du blocage de la chambre:');
-    if (reason) {
-      const result = await onToggleRoomBlock(intervention.location, reason);
-      if (result.success) {
-        addToast({
-          type: 'success',
-          title: 'Chambre bloquée',
-          message: 'La chambre a été bloquée'
-        });
+    setIsSubmitting(true);
+    
+    try {
+      const result = await onSendMessage(newMessage, selectedPhotos);
+      
+      if (result?.success) {
+        setNewMessage('');
+        setSelectedPhotos([]);
+        setPreviewPhotos([]);
       }
+    } catch (error) {
+      console.error('Erreur envoi message:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleImageError = (photoId, retryCount = 0) => {
-  if (retryCount < 3) {
-    setTimeout(() => {
-      // Tenter de recharger
-      setImageReload(prev => ({ ...prev, [photoId]: Date.now() }));
-    }, 1000 * (retryCount + 1));
-  } else {
-    setImageErrors(prev => ({ ...prev, [photoId]: true }));
-  }
-};
-
-  const getPhotoUrl = (photo) => {
-    if (typeof photo === 'string') return photo;
-    if (photo && photo.url) return photo.url;
-    return null;
+  const handleUpdateStatus = async (newStatus) => {
+    setIsSubmitting(true);
+    try {
+      await onUpdate({ status: newStatus });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const validPhotos = intervention.photos?.filter(photo => {
-    const url = getPhotoUrl(photo);
-    const photoId = typeof photo === 'string' ? photo : photo.id;
-    return url && !imageErrors[photoId];
-  }) || [];
+  const handleUpdateTechComment = async () => {
+    if (techComment === intervention?.techComment) return;
+    
+    setIsSubmitting(true);
+    try {
+      await onUpdate({ techComment });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddPhotos = async () => {
+    if (selectedPhotos.length === 0) return;
+    
+    setIsSubmitting(true);
+    try {
+      const result = await onUpdate({}, selectedPhotos);
+      
+      if (result?.success) {
+        setSelectedPhotos([]);
+        setPreviewPhotos([]);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddSupply = () => {
+    if (!newSupply.name.trim()) return;
+    onAddSupply(newSupply);
+    setNewSupply({ name: '', quantity: '', unit: 'pièce' });
+  };
+
+  const statusConfig = {
+    todo: { label: 'À faire', color: 'bg-gray-100 text-gray-800', icon: Clock },
+    inprogress: { label: 'En cours', color: 'bg-blue-100 text-blue-800', icon: Wrench },
+    ordering: { label: 'En commande', color: 'bg-orange-100 text-orange-800', icon: Package },
+    completed: { label: 'Terminée', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
+    cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-800', icon: X }
+  };
+
+  const currentStatus = statusConfig[intervention?.status] || statusConfig.todo;
+  const StatusIcon = currentStatus.icon;
+
+  const assignedUser = users.find(u => u.id === intervention?.assignedTo);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-6xl w-full max-h-[95vh] overflow-y-auto">
-        <div className="p-6">
-          {/* En-tête */}
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
-                Intervention #{intervention.id.slice(-8).toUpperCase()}
-              </h2>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <MapPin size={16} className="text-gray-500" />
-                <span className="font-medium text-gray-700 dark:text-gray-300">{intervention.location}</span>
-                <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded-full">
-                  {intervention.roomType}
-                </span>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(intervention.priority)}`}>
-                  {intervention.priority}
-                </span>
-              </div>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold text-gray-900">{intervention?.title}</h2>
+            <div className="flex items-center gap-4 mt-2">
+              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${currentStatus.color}`}>
+                <StatusIcon className="w-4 h-4" />
+                {currentStatus.label}
+              </span>
+              <span className="text-sm text-gray-600">
+                <Calendar className="w-4 h-4 inline mr-1" />
+                {formatShortDate(intervention?.createdAt)}
+              </span>
             </div>
-            <button 
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition"
-            >
-              <X size={24} />
-            </button>
           </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+            <X className="w-6 h-6 text-gray-500" />
+          </button>
+        </div>
 
-          {/* Navigation par onglets */}
-          <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-            <nav className="flex gap-6 -mb-px">
-              {[
-                { id: 'details', label: 'Détails', icon: Home },
-                { id: 'messages', label: 'Messages', icon: MessageCircle },
-                { id: 'history', label: 'Historique', icon: Clock },
-                { id: 'supplies', label: 'Fournitures', icon: Package }
-              ].map(tab => (
+        {/* Tabs */}
+        <div className="border-b border-gray-200 bg-gray-50">
+          <div className="flex px-6">
+            {[
+              { id: 'details', label: 'Détails', icon: FileText },
+              { id: 'messages', label: 'Messages', icon: MessageSquare, badge: intervention?.messages?.length || 0 },
+              { id: 'supplies', label: 'Fournitures', icon: Package, badge: intervention?.suppliesNeeded?.length || 0 },
+              { id: 'photos', label: 'Photos', icon: ImageIcon, badge: intervention?.photos?.length || 0 }
+            ].map(tab => {
+              const Icon = tab.icon;
+              return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`py-3 px-1 font-medium text-sm border-b-2 transition flex items-center gap-2 ${
+                  className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium transition-colors relative ${
                     activeTab === tab.id
-                      ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                   }`}
                 >
-                  <tab.icon size={18} />
+                  <Icon className="w-5 h-5" />
                   {tab.label}
+                  {tab.badge > 0 && (
+                    <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full">
+                      {tab.badge}
+                    </span>
+                  )}
                 </button>
-              ))}
-            </nav>
+              );
+            })}
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Colonne principale */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Détails de l'intervention */}
-              {activeTab === 'details' && (
-                <>
-                  <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
-                    <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Informations générales</h3>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-600 dark:text-gray-400">Statut:</span>
-                        <span className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(intervention.status)}`}>
-                          {getStatusText(intervention.status)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600 dark:text-gray-400">Priorité:</span>
-                        <span className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(intervention.priority)}`}>
-                          {intervention.priority}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600 dark:text-gray-400">Créée le:</span>
-                        <span className="ml-2 text-gray-800 dark:text-gray-200">
-                          {intervention.createdAt?.formatDate()?.('fr-FR') || 'Date inconnue'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600 dark:text-gray-400">Par:</span>
-                        <span className="ml-2 text-gray-800 dark:text-gray-200">{intervention.createdByName}</span>
-                      </div>
-                      {intervention.assignedToName && (
-                        <div className="col-span-2">
-                          <span className="text-gray-600 dark:text-gray-400">Assignée à:</span>
-                          <span className="ml-2 text-gray-800 dark:text-gray-200">{intervention.assignedToName}</span>
-                        </div>
-                      )}
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {activeTab === 'details' && (
+            <div className="space-y-6">
+              {/* Informations principales */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
+                  <div>
+                    <div className="text-sm text-gray-500">Logement</div>
+                    <div className="font-medium">{intervention?.logement}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <User className="w-5 h-5 text-gray-400 mt-0.5" />
+                  <div>
+                    <div className="text-sm text-gray-500">Assigné à</div>
+                    <div className="font-medium">
+                      {assignedUser?.name || intervention?.assignedToName || 'Non assigné'}
                     </div>
                   </div>
+                </div>
 
-                  {/* Description */}
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center gap-2 mb-3">
-                      <MessageSquare size={18} className="text-blue-600 dark:text-blue-400" />
-                      <h3 className="font-semibold text-blue-900 dark:text-blue-100">Description</h3>
-                    </div>
-                    <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
-                      {intervention.missionSummary || intervention.description}
-                    </p>
+                <div className="flex items-start gap-3">
+                  <FileText className="w-5 h-5 text-gray-400 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-500">Description</div>
+                    <div className="text-gray-900 whitespace-pre-wrap">{intervention?.description}</div>
                   </div>
+                </div>
+              </div>
 
-                  {/* Commentaire créateur */}
-                  {intervention.missionComment && (
-                    <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
-                      <div className="flex items-center gap-2 mb-2">
-                        <User size={16} className="text-green-600 dark:text-green-400" />
-                        <span className="text-sm font-medium text-green-900 dark:text-green-100">Commentaire créateur</span>
-                      </div>
-                      <p className="text-gray-800 dark:text-gray-200 text-sm">{intervention.missionComment}</p>
-                    </div>
-                  )}
-
-                  {/* Photos */}
-                  {validPhotos.length > 0 && (
-                    <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Camera size={18} className="text-gray-600 dark:text-gray-400" />
-                        <h3 className="font-semibold text-gray-800 dark:text-white">
-                          Photos ({validPhotos.length})
-                        </h3>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {validPhotos.map((photo, index) => {
-                          const photoUrl = getPhotoUrl(photo);
-                          const photoId = typeof photo === 'string' ? photo : (photo.id || `photo-${index}`);
-                          
-                          return (
-                            <div key={photoId} className="relative group">
-                              <img
-                                src={photoUrl}
-                                alt={`Photo ${index + 1}`}
-                                className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-80 transition"
-                                onClick={() => window.open(photoUrl, '_blank')}
-                                onError={() => handleImageError(photoId)}
-                                loading="lazy"
-                              />
-                              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 rounded-lg transition-all flex items-center justify-center">
-                                <span className="text-white opacity-0 group-hover:opacity-100 text-sm font-medium">
-                                  Agrandir
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {intervention.photos && intervention.photos.length > validPhotos.length && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                          ⚠️ {intervention.photos.length - validPhotos.length} photo(s) n'ont pas pu être chargées
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </>
+              {/* Actions rapides */}
+              {user?.role === 'admin' && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">Actions rapides</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {['todo', 'inprogress', 'ordering', 'completed'].map(status => {
+                      const config = statusConfig[status];
+                      const Icon = config.icon;
+                      return (
+                        <button
+                          key={status}
+                          onClick={() => handleUpdateStatus(status)}
+                          disabled={isSubmitting || intervention?.status === status}
+                          className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                            intervention?.status === status
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                          } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <Icon className="w-5 h-5" />
+                          <span className="text-xs font-medium text-center">{config.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
 
-              {/* Messages */}
-              {activeTab === 'messages' && (
-                <div className="space-y-4">
-                  <div className="bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
-                    <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Conversation</h3>
-                    
-                    {/* Liste des messages avec scroll auto */}
-                    <div className="space-y-3 max-h-96 overflow-y-auto mb-4 scroll-smooth">
-                      {localMessages
-                        ?.sort((a, b) => {
-                          const getTimestamp = (msg) => {
-                            if (msg.timestamp instanceof Date) return msg.timestamp.getTime();
-                            if (msg.timestamp?.toDate) return msg.timestamp.toDate().getTime();
-                            if (typeof msg.timestamp === 'string') return new Date(msg.timestamp).getTime();
-                            if (typeof msg.timestamp === 'number') return msg.timestamp;
-                            return 0;
-                          };
-                          
-                          return getTimestamp(a) - getTimestamp(b);
-                        })
-                        .map((message, index) => (
-                          <div
-                            key={message.id || index}
-                            className={`flex ${message.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
-                          >
-                            <div
-                              className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                                message.senderId === user.uid
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
-                              }`}
-                            >
-                              <p className="text-sm break-words">{message.text}</p>
-                              <p className="text-xs opacity-70 mt-1">
-                                {message.senderName} • {
-                                  message.timestamp instanceof Date 
-                                    ? message.timestamp.toLocaleString('fr-FR')
-                                    : new Date(message.timestamp).toLocaleString('fr-FR')
-                                }
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      
-                      {(!localMessages || localMessages.length === 0) && (
-                        <p className="text-gray-500 dark:text-gray-400 text-center py-8">
-                          Aucun message pour le moment
-                        </p>
+              {/* Commentaire technicien */}
+              {(user?.role === 'technician' || user?.role === 'admin') && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">Commentaire technicien</h3>
+                  <textarea
+                    value={techComment}
+                    onChange={(e) => setTechComment(e.target.value)}
+                    placeholder="Ajouter des notes techniques..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    rows={4}
+                    disabled={isSubmitting}
+                  />
+                  {techComment !== intervention?.techComment && (
+                    <button
+                      onClick={handleUpdateTechComment}
+                      disabled={isSubmitting}
+                      className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Enregistrement...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" />
+                          Enregistrer
+                        </>
                       )}
-                      
-                      <div ref={messagesEndRef} />
-                    </div>
-
-                    {/* Champ de message */}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        placeholder="Tapez votre message..."
-                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-600 text-gray-900 dark:text-white"
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSendMessage();
-                          }
-                        }}
-                      />
-                      <button
-                        onClick={handleSendMessage}
-                        disabled={!newMessage.trim()}
-                        className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        <Send size={16} />
-                        Envoyer
-                      </button>
-                    </div>
-                  </div>
+                    </button>
+                  )}
                 </div>
               )}
 
               {/* Historique */}
-              {activeTab === 'history' && (
-                <div className="bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
-                  <h3 className="font-semibold text-gray-800 dark:text-white mb-3">
-                    Historique des modifications
-                  </h3>
+              <div>
+                <button
+                  onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
+                  className="flex items-center justify-between w-full mb-3"
+                >
+                  <h3 className="font-semibold text-gray-900">Historique</h3>
+                  {isHistoryExpanded ? (
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  )}
+                </button>
+                
+                {isHistoryExpanded && (
                   <div className="space-y-3">
-                    {intervention.history
-                      ?.sort((a, b) => {
-                        const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-                        const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-                        return dateB - dateA;
-                      })
-                      .map((event, index) => (
-                        <div 
-                          key={event.id || index} 
-                          className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-500 transition"
-                        >
-                          <div className="flex-shrink-0 mt-2">
-                            <div className={`w-3 h-3 rounded-full ${
-                              event.status === 'completed' ? 'bg-green-500' :
-                              event.status === 'inprogress' ? 'bg-blue-500' :
-                              event.status === 'cancelled' ? 'bg-red-500' :
-                              event.status === 'ordering' ? 'bg-orange-500' :
-                              'bg-gray-400'
-                            }`}></div>
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            {event.status && (
-                              <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium mb-2 ${getStatusColor(event.status)}`}>
-                                {getStatusText(event.status)}
-                              </span>
-                            )}
-
-                            <p className="text-sm text-gray-800 dark:text-gray-200 mb-1">
-                              {event.comment}
-                            </p>
-
-                            {event.fields && event.fields.length > 0 && (
-                              <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                Modifié: {event.fields.join(', ')}
+                    {intervention?.history?.length > 0 ? (
+                      intervention.history.slice().reverse().map((event, index) => {
+                        const config = statusConfig[event.status] || statusConfig.todo;
+                        const Icon = config.icon;
+                        return (
+                          <div key={event.id || index} className="flex gap-3 p-3 bg-gray-50 rounded-lg">
+                            <div className={`p-2 rounded-lg ${config.color}`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="font-medium text-gray-900">{event.comment}</div>
+                              <div className="text-sm text-gray-500 mt-1">
+                                Par {event.byName} • {formatTimestamp(event.date)}
                               </div>
-                            )}
-
-                            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-2">
-                              <span className="font-medium">{event.byName}</span>
-                              <span>•</span>
-                              <span>
-                                {event.date?.toDate 
-                                  ? event.date.toDate().toLocaleString('fr-FR', {
-                                      day: '2-digit',
-                                      month: 'short',
-                                      year: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })
-                                  : new Date(event.date).toLocaleString('fr-FR', {
-                                      day: '2-digit',
-                                      month: 'short',
-                                      year: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })
-                                }
-                              </span>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    
-                    {(!intervention.history || intervention.history.length === 0) && (
-                      <p className="text-gray-500 dark:text-gray-400 text-center py-8">
-                        Aucun historique disponible
-                      </p>
+                        );
+                      })
+                    ) : (
+                      <p className="text-gray-500 text-sm italic">Aucun historique</p>
                     )}
                   </div>
-                </div>
-              )}
-
-              {/* Fournitures */}
-              {activeTab === 'supplies' && (
-                <div className="bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
-                  <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Fournitures nécessaires</h3>
-                  <div className="space-y-3">
-                    {intervention.suppliesNeeded?.map((supply, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-600 rounded-lg">
-                        <div>
-                          <p className="font-medium text-gray-800 dark:text-white">{supply.name}</p>
-                          {supply.quantity && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400">Quantité: {supply.quantity}</p>
-                          )}
-                          {supply.comment && (
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{supply.comment}</p>
-                          )}
-                        </div>
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
-                          {supply.addedAt?.toDate?.()?.formatDate()('fr-FR') || 'Date inconnue'}
-                        </span>
-                      </div>
-                    ))}
-                    
-                    {(!intervention.suppliesNeeded || intervention.suppliesNeeded.length === 0) && (
-                      <p className="text-gray-500 dark:text-gray-400 text-center py-8">
-                        Aucune fourniture nécessaire
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
+          )}
 
-            {/* Colonne des actions */}
-            <div className="space-y-6">
-              {(user.role === 'technician' || user.role === 'manager' || user.role === 'superadmin') && (
-                <>
-                  {/* Commentaire technicien */}
-                  <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg border border-orange-200 dark:border-orange-800">
-                    <div className="flex items-center gap-2 mb-3">
-                      <MessageSquare size={18} className="text-orange-600 dark:text-orange-400" />
-                      <h3 className="font-semibold text-orange-900 dark:text-orange-100">Commentaire technicien</h3>
-                    </div>
-                    <textarea
-                      value={techComment}
-                      onChange={(e) => setTechComment(e.target.value)}
-                      placeholder="Travail effectué, observations, recommandations..."
-                      className="w-full px-3 py-2 border border-orange-300 dark:border-orange-600 rounded-lg focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-600 text-gray-900 dark:text-white min-h-24"
-                    />
+          {activeTab === 'messages' && (
+            <div className="flex flex-col h-full">
+              <div className="flex-1 space-y-4 mb-4 overflow-y-auto">
+                {intervention?.messages?.length > 0 ? (
+                  intervention.messages.map((msg, index) => {
+                    const isOwn = msg.senderId === user?.uid;
+                    return (
+                      <div key={msg.id || index} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                          isOwn ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                        }`}>
+                          {!isOwn && (
+                            <div className="text-xs font-medium mb-1 opacity-75">{msg.senderName}</div>
+                          )}
+                          <div className="whitespace-pre-wrap">{msg.text}</div>
+                          <div className={`text-xs mt-1 ${isOwn ? 'text-blue-100' : 'text-gray-500'}`}>
+                            {formatTimestamp(msg.timestamp)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                    <MessageSquare className="w-12 h-12 mb-3" />
+                    <p>Aucun message</p>
                   </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
 
-                  {/* Changement de statut */}
-                  <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Changer le statut
-                    </label>
-                    <select
-                      value={newStatus}
-                      onChange={(e) => setNewStatus(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-600 text-gray-900 dark:text-white"
-                    >
-                      <option value="todo">À faire</option>
-                      <option value="inprogress">En cours</option>
-                      <option value="ordering">En commande</option>
-                      <option value="completed">Terminée</option>
-                      <option value="cancelled">Annulée</option>
-                    </select>
-                    
-                    <button
-                      onClick={handleStatusUpdate}
-                      className="w-full mt-3 bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-2"
-                    >
-                      <Save size={16} />
-                      Mettre à jour
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Actions rapides */}
-              <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-                <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Actions rapides</h3>
-                <div className="space-y-2">
-                  {user.role !== 'technician' && (
-                    <button
-                      onClick={handleBlockRoom}
-                      className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition flex items-center justify-center gap-2"
-                    >
-                      <AlertCircle size={16} />
-                      Bloquer chambre
-                    </button>
-                  )}
-                  
+              <div className="border-t border-gray-200 pt-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                    placeholder="Écrire un message..."
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={isSubmitting}
+                  />
                   <button
-                    onClick={() => window.print()}
-                    className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition flex items-center justify-center gap-2"
+                    onClick={handleSendMessage}
+                    disabled={isSubmitting || (!newMessage.trim() && selectedPhotos.length === 0)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
                   >
-                    <Edit3 size={16} />
-                    Imprimer
+                    {isSubmitting ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Send className="w-5 h-5" />
+                    )}
                   </button>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Informations techniques */}
-              <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-                <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Informations techniques</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">ID:</span>
-                    <span className="text-gray-800 dark:text-gray-200 font-mono text-xs">{intervention.id}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Dernière modification:</span>
-                    <span className="text-gray-800 dark:text-gray-200">
-                      {intervention.updatedAt?.formatDate()?.('fr-FR') || 'Inconnue'}
-                    </span>
-                  </div>
-                  {intervention.estimatedDuration && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Durée estimée:</span>
-                      <span className="text-gray-800 dark:text-gray-200">{intervention.estimatedDuration} min</span>
+          {activeTab === 'supplies' && (
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newSupply.name}
+                  onChange={(e) => setNewSupply({ ...newSupply, name: e.target.value })}
+                  placeholder="Nom de la fourniture"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <input
+                  type="number"
+                  value={newSupply.quantity}
+                  onChange={(e) => setNewSupply({ ...newSupply, quantity: e.target.value })}
+                  placeholder="Qté"
+                  className="w-20 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <select
+                  value={newSupply.unit}
+                  onChange={(e) => setNewSupply({ ...newSupply, unit: e.target.value })}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="pièce">pièce</option>
+                  <option value="mètre">mètre</option>
+                  <option value="litre">litre</option>
+                  <option value="kg">kg</option>
+                </select>
+                <button
+                  onClick={handleAddSupply}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Ajouter
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {intervention?.suppliesNeeded?.length > 0 ? (
+                  intervention.suppliesNeeded.map((supply, index) => (
+                    <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <button
+                        onClick={() => onToggleSupplyStatus(index)}
+                        className={`p-1 rounded ${
+                          supply.ordered ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'
+                        }`}
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <div className="flex-1">
+                        <div className={supply.ordered ? 'line-through text-gray-400' : ''}>
+                          {supply.name}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {supply.quantity} {supply.unit}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onRemoveSupply(index)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                  )}
-                </div>
+                  ))
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                    <Package className="w-12 h-12 mb-3" />
+                    <p>Aucune fourniture</p>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
+
+          {activeTab === 'photos' && (
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handlePhotoSelect}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isSubmitting}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Paperclip className="w-5 h-5" />
+                  Sélectionner des photos
+                </button>
+                {selectedPhotos.length > 0 && (
+                  <button
+                    onClick={handleAddPhotos}
+                    disabled={isSubmitting}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Upload...
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon className="w-5 h-5" />
+                        Ajouter ({selectedPhotos.length})
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {previewPhotos.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {previewPhotos.map((preview, index) => (
+                    <div key={index} className="relative group">
+                      <img src={preview} alt={`Preview ${index}`} className="w-full h-32 object-cover rounded-lg" />
+                      <button
+                        onClick={() => handleRemovePhoto(index)}
+                        className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {intervention?.photos?.length > 0 ? (
+                  intervention.photos.map((photo, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={photo}
+                        alt={`Photo ${index + 1}`}
+                        className="w-full h-40 object-cover rounded-lg shadow-md cursor-pointer hover:shadow-xl transition-shadow"
+                        onClick={() => window.open(photo, '_blank')}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-400">
+                    <ImageIcon className="w-12 h-12 mb-3" />
+                    <p>Aucune photo</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
