@@ -5,6 +5,7 @@ import {
   Edit3, Save, Trash2, Home, Users, Hammer
 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import { arrayUnion, serverTimestamp } from 'firebase/firestore';
 
 const InterventionDetailModal = ({ 
   intervention, 
@@ -70,15 +71,16 @@ const InterventionDetailModal = ({
   const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
 
-    const result = await onUpdateIntervention(intervention.id, {
-      messages: [...(intervention.messages || []), {
-        text: newMessage,
+     const result = await onUpdateIntervention(intervention.id, {
+      messages: arrayUnion({
+        id: `msg_${Date.now()}`,
+        text: newMessage.trim(),
         type: 'text',
         senderId: user.uid,
         senderName: user.name || user.email,
-        timestamp: new Date().toISOString(),
+        timestamp: serverTimestamp(), // ✅ CORRECTION 2: serverTimestamp au lieu de new Date()
         read: false
-      }]
+      })
     });
 
     if (result.success) {
@@ -287,27 +289,40 @@ const InterventionDetailModal = ({
                   <div className="bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
                     <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Conversation</h3>
                     
-                    {/* Liste des messages */}
-                    <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
-                      {intervention.messages?.map((message, index) => (
-                        <div
-                          key={index}
-                          className={`flex ${message.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
-                        >
+                    {/* Liste des messages avec scroll auto */}
+                    <div 
+                      ref={messagesEndRef} 
+                      className="space-y-3 max-h-96 overflow-y-auto mb-4 scroll-smooth"
+                    >
+                      {intervention.messages
+                        ?.sort((a, b) => {
+                          const dateA = a.timestamp instanceof Date ? a.timestamp : new Date(a.timestamp);
+                          const dateB = b.timestamp instanceof Date ? b.timestamp : new Date(b.timestamp);
+                          return dateA - dateB;
+                        })
+                        .map((message, index) => (
                           <div
-                            className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                              message.senderId === user.uid
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
-                            }`}
+                            key={message.id || index}
+                            className={`flex ${message.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
                           >
-                            <p className="text-sm">{message.text}</p>
-                            <p className="text-xs opacity-70 mt-1">
-                              {message.senderName} • {new Date(message.timestamp?.toDate?.() || message.timestamp).toLocaleString('fr-FR')}
-                            </p>
+                            <div
+                              className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                                message.senderId === user.uid
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
+                              }`}
+                            >
+                              <p className="text-sm break-words">{message.text}</p>
+                              <p className="text-xs opacity-70 mt-1">
+                                {message.senderName} • {
+                                  message.timestamp instanceof Date 
+                                    ? message.timestamp.toLocaleString('fr-FR')
+                                    : new Date(message.timestamp).toLocaleString('fr-FR')
+                                }
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
                       
                       {(!intervention.messages || intervention.messages.length === 0) && (
                         <p className="text-gray-500 dark:text-gray-400 text-center py-8">
@@ -324,7 +339,12 @@ const InterventionDetailModal = ({
                         onChange={(e) => setNewMessage(e.target.value)}
                         placeholder="Tapez votre message..."
                         className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-600 text-gray-900 dark:text-white"
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
                       />
                       <button
                         onClick={handleSendMessage}
@@ -342,27 +362,78 @@ const InterventionDetailModal = ({
               {/* Historique */}
               {activeTab === 'history' && (
                 <div className="bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
-                  <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Historique des modifications</h3>
+                  <h3 className="font-semibold text-gray-800 dark:text-white mb-3">
+                    Historique des modifications
+                  </h3>
                   <div className="space-y-3">
-                    {intervention.history?.map((event, index) => (
-                      <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-600 rounded-lg">
-                        <div className="flex-shrink-0 w-2 h-2 bg-indigo-600 rounded-full mt-2"></div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
-                              {getStatusText(event.status)}
-                            </span>
-                            <span className="text-sm text-gray-600 dark:text-gray-400">
-                              par {event.byName}
-                            </span>
+                    {intervention.history
+                      ?.sort((a, b) => {
+                        const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+                        const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+                        return dateB - dateA; // Plus récent en premier
+                      })
+                      .map((event, index) => (
+                        <div 
+                          key={event.id || index} 
+                          className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-500 transition"
+                        >
+                          {/* Timeline dot */}
+                          <div className="flex-shrink-0 mt-2">
+                            <div className={`w-3 h-3 rounded-full ${
+                              event.status === 'completed' ? 'bg-green-500' :
+                              event.status === 'inprogress' ? 'bg-blue-500' :
+                              event.status === 'cancelled' ? 'bg-red-500' :
+                              event.status === 'ordering' ? 'bg-orange-500' :
+                              'bg-gray-400'
+                            }`}></div>
                           </div>
-                          <p className="text-sm text-gray-800 dark:text-gray-200">{event.comment}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {new Date(event.date?.toDate?.() || event.date).toLocaleString('fr-FR')}
-                          </p>
+
+                          <div className="flex-1 min-w-0">
+                            {/* Status badge */}
+                            {event.status && (
+                              <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium mb-2 ${getStatusColor(event.status)}`}>
+                                {getStatusText(event.status)}
+                              </span>
+                            )}
+
+                            {/* Commentaire */}
+                            <p className="text-sm text-gray-800 dark:text-gray-200 mb-1">
+                              {event.comment}
+                            </p>
+
+                            {/* Champs modifiés (optionnel) */}
+                            {event.fields && event.fields.length > 0 && (
+                              <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                Modifié: {event.fields.join(', ')}
+                              </div>
+                            )}
+
+                            {/* Meta info */}
+                            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-2">
+                              <span className="font-medium">{event.byName}</span>
+                              <span>•</span>
+                              <span>
+                                {event.date?.toDate 
+                                  ? event.date.toDate().toLocaleString('fr-FR', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })
+                                  : new Date(event.date).toLocaleString('fr-FR', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })
+                                }
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
                     
                     {(!intervention.history || intervention.history.length === 0) && (
                       <p className="text-gray-500 dark:text-gray-400 text-center py-8">

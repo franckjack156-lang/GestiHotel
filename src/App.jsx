@@ -14,7 +14,8 @@ import {
   doc,
   deleteDoc,
   serverTimestamp,
-  getDocs
+  getDocs,
+  arrayUnion 
 } from 'firebase/firestore';
 import { db } from './config/firebase';
 
@@ -122,25 +123,25 @@ const AppContent = () => {
         orderBy('createdAt', 'desc')
       );
       
-      const unsubInterventions = onSnapshot(
-        interventionsQuery,
-        (snapshot) => {
-          const data = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            createdAt: doc.data().createdAt?.toDate() || new Date()
-          }));
-          console.log('✅ Interventions chargées:', data.length);
-          setInterventions(data);
-        },
-        (error) => {
-          console.error('❌ Erreur interventions:', error);
-          addToast({ 
-            type: 'error', 
-            message: 'Erreur de chargement des interventions. Vérifiez les permissions Firestore.' 
-          });
-        }
-      );
+       const unsubInterventions = onSnapshot(
+    interventionsQuery,
+    (snapshot) => {
+      const data = snapshot.docs.map(doc => {
+        const docData = doc.data();
+        return {
+          id: doc.id,
+          ...docData,
+          createdAt: docData.createdAt?.toDate() || new Date(),
+          // ✅ Convertir les timestamps des messages
+          messages: docData.messages?.map(msg => ({
+            ...msg,
+            timestamp: msg.timestamp?.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp)
+          })) || []
+        };
+      });
+      setInterventions(data);
+    }
+  );
       unsubscribers.push(unsubInterventions);
     } catch (error) {
       console.error('❌ Erreur setup interventions:', error);
@@ -226,85 +227,149 @@ const AppContent = () => {
   };
 
   const handleCreateIntervention = async (interventionData, photos) => {
-    try {
-      let photoUrls = [];
-      if (photos && photos.length > 0) {
-        const uploadResults = await storageService.uploadMultiple(
-          photos,
-          `interventions/${Date.now()}`
-        );
-        if (uploadResults.success) {
-          photoUrls = uploadResults.urls;
-        }
-      }
+  try {
+    // Créer d'abord l'intervention pour obtenir l'ID
+    const intervention = {
+      ...interventionData,
+      status: 'todo',
+      photos: [],
+      messages: [],
+      suppliesNeeded: [],
+      history: []
+    };
 
-      const result = await interventionService.create(
-        {
-          ...interventionData,
-          photos: photoUrls
-        },
-        user
+    const result = await interventionService.create(intervention, user);
+
+    if (!result.success) {
+      throw new Error(result.error || 'Erreur création intervention');
+    }
+
+    const interventionId = result.id;
+
+    // ✅ Maintenant uploader les photos avec le bon ID
+    if (photos && photos.length > 0) {
+      const uploadResults = await storageService.uploadMultiple(
+        photos,
+        `interventions/${interventionId}` // ✅ Utiliser le vrai ID
       );
 
-      if (result.success) {
-        setIsCreateInterventionModalOpen(false);
-        addToast({ 
-          type: 'success', 
-          title: 'Intervention créée',
-          message: 'Nouvelle intervention ajoutée avec succès' 
-        });
+      if (uploadResults.success && uploadResults.urls.length > 0) {
+        // Mettre à jour l'intervention avec les URLs des photos
+        await interventionService.update(
+          interventionId,
+          {
+            photos: arrayUnion(...uploadResults.urls),
+            history: arrayUnion(createHistoryEntry(
+              'todo',
+              `${uploadResults.urls.length} photo(s) ajoutée(s) lors de la création`,
+              user
+            ))
+          },
+          user
+        );
       }
-
-      return result;
-    } catch (error) {
-      addToast({ 
-        type: 'error', 
-        message: 'Erreur lors de la création de l\'intervention' 
-      });
-      return { success: false, error: error.message };
     }
-  };
+
+    setIsCreateInterventionModalOpen(false);
+    addToast({ 
+      type: 'success', 
+      title: 'Intervention créée',
+      message: photos && photos.length > 0 
+        ? `Intervention créée avec ${photos.length} photo(s)` 
+        : 'Nouvelle intervention ajoutée avec succès'
+    });
+
+    return { success: true, id: interventionId };
+  } catch (error) {
+    console.error('Erreur création intervention:', error);
+    addToast({ 
+      type: 'error', 
+      message: 'Erreur lors de la création de l\'intervention' 
+    });
+    return { success: false, error: error.message };
+  }
+};
 
   const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
-    try {
-      let newPhotoUrls = [];
-      if (photos && photos.length > 0) {
-        const uploadResults = await storageService.uploadMultiple(
-          photos,
-          `interventions/${interventionId}`
-        );
-        if (uploadResults.success) {
-          newPhotoUrls = uploadResults.urls;
-        }
-      }
-
-      const result = await interventionService.update(
-        interventionId,
-        {
-          ...updates,
-          photos: newPhotoUrls.length > 0 
-            ? [...(updates.photos || []), ...newPhotoUrls]
-            : updates.photos
-        },
-        user
+  try {
+    // Upload des nouvelles photos si présentes
+    let newPhotoUrls = [];
+    if (photos && photos.length > 0) {
+      const uploadResults = await storageService.uploadMultiple(
+        photos,
+        `interventions/${interventionId}`
       );
-
-      if (result.success) {
-        addToast({ 
-          type: 'success', 
-          message: 'Intervention mise à jour' 
-        });
+      if (uploadResults.success) {
+        newPhotoUrls = uploadResults.urls;
       }
-
-      return result;
-    } catch (error) {
-      addToast({ 
-        type: 'error', 
-        message: 'Erreur lors de la mise à jour' 
-      });
-      return { success: false, error: error.message };
     }
-  };
+
+    // ✅ Déterminer le commentaire d'historique selon les modifications
+    let historyComment = '';
+    let newStatus = updates.status;
+
+    if (updates.status) {
+      const statusLabels = {
+        todo: 'À faire',
+        inprogress: 'En cours',
+        ordering: 'En commande',
+        completed: 'Terminée',
+        cancelled: 'Annulée'
+      };
+      historyComment = `Statut changé à "${statusLabels[updates.status]}"`;
+    } else if (updates.assignedTo) {
+      historyComment = `Réassignée à ${updates.assignedToName || 'un technicien'}`;
+    } else if (updates.techComment) {
+      historyComment = 'Commentaire technicien mis à jour';
+    } else if (newPhotoUrls.length > 0) {
+      historyComment = `${newPhotoUrls.length} photo(s) ajoutée(s)`;
+    } else {
+      historyComment = 'Intervention mise à jour';
+    }
+
+    // ✅ Préparer les données de mise à jour
+    const updateData = {
+      ...updates,
+      updatedAt: serverTimestamp(),
+      updatedBy: user.uid,
+      updatedByName: user.name || user.email
+    };
+
+    // Ajouter les photos
+    if (newPhotoUrls.length > 0) {
+      updateData.photos = arrayUnion(...newPhotoUrls);
+    }
+
+    // ✅ Ajouter l'entrée d'historique
+    updateData.history = arrayUnion(createHistoryEntry(
+      newStatus || 'updated',
+      historyComment,
+      user
+    ));
+
+    // Mettre à jour l'intervention
+    const result = await interventionService.update(
+      interventionId,
+      updateData,
+      user
+    );
+
+    if (result.success) {
+      addToast({ 
+        type: 'success', 
+        message: 'Intervention mise à jour' 
+      });
+    }
+
+    return result;
+  } catch (error) {
+    addToast({ 
+      type: 'error', 
+      message: 'Erreur lors de la mise à jour' 
+    });
+    return { success: false, error: error.message };
+  }
+};
 
   const handleToggleRoomBlock = async (room, reason) => {
     try {
@@ -469,6 +534,15 @@ const AppContent = () => {
     roomIssueFrequency: []
   };
 
+  const createHistoryEntry = (status, comment, user) => ({
+    id: `history_${Date.now()}`,
+    status,
+    date: serverTimestamp(),
+    by: user.uid,
+    byName: user.name || user.email,
+    comment,
+    fields: [] // Champs modifiés (optionnel)
+  });
   // ========== RENDU PRINCIPAL ==========
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
