@@ -1,8 +1,6 @@
-// src/App.jsx - VERSION CORRIGÉE COMPLÈTE
+// src/App.jsx - VERSION CORRIGÉE FINALE
 
 import React, { useState, useEffect } from 'react';
-
-// ✅ IMPORTS FIREBASE MANQUANTS
 import { 
   collection, 
   query, 
@@ -43,7 +41,6 @@ import NotificationPanel from './components/Notifications/NotificationPanel';
 import DashboardView from './components/Dashboard/DashboardView';
 import InterventionsView from './components/Interventions/InterventionsView';
 import AnalyticsView from './components/Analytics/AnalyticsView';
-import AdvancedAnalytics from './components/Dashboard/AdvancedAnalytics';
 import UsersManagementView from './components/Users/UsersManagementView';
 
 // Modals
@@ -63,6 +60,19 @@ import {
   storageService 
 } from './services/index';
 
+// ========================================
+// 🎯 HELPER: CRÉER UNE ENTRÉE D'HISTORIQUE
+// ========================================
+const createHistoryEntry = (status, comment, currentUser, fields = []) => ({
+  id: `history_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+  status: status || 'updated',
+  date: Timestamp.now(), // ✅ Utiliser Timestamp.now() au lieu de serverTimestamp()
+  by: currentUser.uid,
+  byName: currentUser.name || currentUser.email,
+  comment: comment || 'Modification effectuée',
+  fields: fields
+});
+
 const AppContent = () => {
   const { user, loading: authLoading, logout } = useAuth();
   const { toasts, removeToast, addToast } = useToast();
@@ -79,7 +89,6 @@ const AppContent = () => {
   const {
     data,
     loading: dataLoading,
-    error: dataError,
     addItem,
     updateItem,
     deleteItem,
@@ -106,64 +115,74 @@ const AppContent = () => {
   const [userModalMode, setUserModalMode] = useState('create');
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
 
-  // ========== CHARGEMENT DES DONNÉES ==========
+  // ========================================
+  // 📊 CHARGEMENT DES DONNÉES
+  // ========================================
   useEffect(() => {
     if (!user) {
       setLoading(false);
       return;
     }
 
-    console.log('🔄 Chargement des données pour:', user.email, 'Role:', user.role);
+    console.log('🔄 Chargement des données pour:', user.email);
 
     const unsubscribers = [];
 
-    // Charger interventions
+    // ✅ INTERVENTIONS
     try {
       const interventionsQuery = query(
         collection(db, 'interventions'),
         orderBy('createdAt', 'desc')
       );
       
-       const unsubInterventions = onSnapshot(
-    interventionsQuery,
-    (snapshot) => {
-      const data = snapshot.docs.map(doc => {
-        const docData = doc.data();
-        const convertTimestamp = (ts) => {
-          if (!ts) return new Date();
-          if (ts.toDate) return ts.toDate();
-          if (ts instanceof Date) return ts;
-          return new Date(ts);
-        };
-        return {
-            id: doc.id,
-            ...docData,
-            createdAt: convertTimestamp(docData.createdAt),
-            updatedAt: docData.updatedAt ? convertTimestamp(docData.updatedAt) : null,
+      const unsubInterventions = onSnapshot(
+        interventionsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map(doc => {
+            const docData = doc.data();
             
-            // ✅ Conversion messages
-            messages: (docData.messages || []).map(msg => ({
-              ...msg,
-              timestamp: convertTimestamp(msg.timestamp)
-            })),
-            
-            // ✅ AJOUT conversion history
-            history: (docData.history || []).map(entry => ({
-              ...entry,
-              date: convertTimestamp(entry.date)
-            }))
+            // Helper pour convertir les timestamps
+            const convertTimestamp = (ts) => {
+              if (!ts) return new Date();
+              if (ts.toDate) return ts.toDate();
+              if (ts instanceof Date) return ts;
+              return new Date(ts);
+            };
+
+            return {
+              id: doc.id,
+              ...docData,
+              createdAt: convertTimestamp(docData.createdAt),
+              updatedAt: docData.updatedAt ? convertTimestamp(docData.updatedAt) : null,
+              
+              // Conversion messages
+              messages: (docData.messages || []).map(msg => ({
+                ...msg,
+                timestamp: convertTimestamp(msg.timestamp)
+              })),
+              
+              // Conversion history
+              history: (docData.history || []).map(entry => ({
+                ...entry,
+                date: convertTimestamp(entry.date)
+              }))
             };
           });
-      console.log('✅ Interventions chargées:', data.length);
-      setInterventions(data);
-    }
-  );
+
+          console.log('✅ Interventions chargées:', data.length);
+          setInterventions(data);
+        },
+        (error) => {
+          console.error('❌ Erreur interventions:', error);
+          addToast({ type: 'error', message: 'Erreur chargement interventions' });
+        }
+      );
       unsubscribers.push(unsubInterventions);
     } catch (error) {
       console.error('❌ Erreur setup interventions:', error);
     }
 
-    // Charger utilisateurs
+    // ✅ UTILISATEURS
     try {
       const usersQuery = query(collection(db, 'users'));
       
@@ -186,7 +205,7 @@ const AppContent = () => {
       console.error('❌ Erreur setup utilisateurs:', error);
     }
 
-    // Charger chambres bloquées
+    // ✅ CHAMBRES BLOQUÉES
     try {
       const roomsQuery = query(
         collection(db, 'blockedRooms'),
@@ -214,13 +233,14 @@ const AppContent = () => {
 
     setLoading(false);
 
-    // Cleanup
     return () => {
       unsubscribers.forEach(unsub => unsub());
     };
   }, [user, addToast]);
 
-  // Analytics
+  // ========================================
+  // 📈 ANALYTICS
+  // ========================================
   useEffect(() => {
     if (user) {
       setAnalyticsUser(user.uid, {
@@ -237,28 +257,31 @@ const AppContent = () => {
     }
   }, [currentView]);
 
-  // ========== HANDLERS INTERVENTIONS ==========
+  // ========================================
+  // 🛠️ HANDLERS INTERVENTIONS
+  // ========================================
+
   const handleInterventionClick = (intervention) => {
     setSelectedIntervention(intervention);
   };
 
   const handleCreateIntervention = async (interventionData, photos) => {
     try {
-      // ✅ Créer d'abord l'historique initial
+      // Créer l'historique initial
       const initialHistory = createHistoryEntry(
         'todo',
         'Intervention créée',
         user
       );
 
-      // Créer l'intervention avec l'historique initial
+      // Créer l'intervention
       const intervention = {
         ...interventionData,
         status: 'todo',
         photos: [],
         messages: [],
         suppliesNeeded: [],
-        history: [initialHistory], // ✅ Historique initialisé correctement
+        history: [initialHistory],
         createdAt: serverTimestamp(),
         createdBy: user.uid,
         createdByName: user.name || user.email
@@ -280,7 +303,6 @@ const AppContent = () => {
         );
 
         if (uploadResults.success && uploadResults.urls.length > 0) {
-          // ✅ Mettre à jour avec arrayUnion pour l'historique
           await updateDoc(doc(db, 'interventions', interventionId), {
             photos: uploadResults.urls,
             history: arrayUnion(createHistoryEntry(
@@ -316,8 +338,7 @@ const AppContent = () => {
     try {
       console.log('🔄 Mise à jour intervention:', interventionId, updates);
 
-      // ✅ Récupérer l'intervention actuelle pour comparer
-      const interventionRef = doc(db, 'interventions', interventionId);
+      // Récupérer l'intervention actuelle
       const interventionSnap = await getDocs(query(
         collection(db, 'interventions'),
         where('__name__', '==', interventionId)
@@ -325,7 +346,7 @@ const AppContent = () => {
       
       const currentIntervention = interventionSnap.docs[0]?.data();
 
-      // Upload des nouvelles photos si présentes
+      // Upload des nouvelles photos
       let newPhotoUrls = [];
       if (photos && photos.length > 0) {
         const uploadResults = await storageService.uploadMultiple(
@@ -337,7 +358,7 @@ const AppContent = () => {
         }
       }
 
-      // ✅ Construire le commentaire d'historique détaillé
+      // Construire le commentaire d'historique
       let historyComment = '';
       const changedFields = [];
 
@@ -350,7 +371,7 @@ const AppContent = () => {
           completed: 'Terminée',
           cancelled: 'Annulée'
         };
-        historyComment = `Statut changé de "${statusLabels[currentIntervention?.status] || 'Inconnu'}" à "${statusLabels[updates.status]}"`;
+        historyComment = `Statut changé: ${statusLabels[currentIntervention?.status] || 'Inconnu'} → ${statusLabels[updates.status]}`;
         changedFields.push('status');
       } else if (updates.assignedTo && updates.assignedTo !== currentIntervention?.assignedTo) {
         historyComment = `Réassignée à ${updates.assignedToName || 'un technicien'}`;
@@ -359,7 +380,7 @@ const AppContent = () => {
         historyComment = 'Commentaire technicien mis à jour';
         changedFields.push('techComment');
       } else if (updates.priority && updates.priority !== currentIntervention?.priority) {
-        historyComment = `Priorité changée à "${updates.priority}"`;
+        historyComment = `Priorité changée: ${updates.priority}`;
         changedFields.push('priority');
       } else if (newPhotoUrls.length > 0) {
         historyComment = `${newPhotoUrls.length} photo(s) ajoutée(s)`;
@@ -368,7 +389,7 @@ const AppContent = () => {
         historyComment = 'Intervention mise à jour';
       }
 
-      // ✅ Préparer les données de mise à jour
+      // Préparer les données de mise à jour
       const updateData = {
         ...updates,
         updatedAt: serverTimestamp(),
@@ -381,20 +402,20 @@ const AppContent = () => {
         updateData.photos = arrayUnion(...newPhotoUrls);
       }
 
-      // ✅ Ajouter l'entrée d'historique avec arrayUnion
+      // Ajouter l'entrée d'historique
       const historyEntry = createHistoryEntry(
         updates.status || currentIntervention?.status || 'updated',
         historyComment,
-        user
+        user,
+        changedFields
       );
-      historyEntry.fields = changedFields; // Ajouter les champs modifiés
 
       updateData.history = arrayUnion(historyEntry);
 
       console.log('📝 Données de mise à jour:', updateData);
 
-      // ✅ Effectuer la mise à jour
-      await updateDoc(interventionRef, updateData);
+      // Effectuer la mise à jour
+      await updateDoc(doc(db, 'interventions', interventionId), updateData);
 
       console.log('✅ Intervention mise à jour avec succès');
 
@@ -414,6 +435,7 @@ const AppContent = () => {
     }
   };
 
+  // ✅ NOUVEAU: Handler pour les messages
   const handleAddMessage = async (interventionId, messageText) => {
     try {
       if (!messageText.trim()) {
@@ -427,17 +449,18 @@ const AppContent = () => {
         type: 'text',
         senderId: user.uid,
         senderName: user.name || user.email,
-        timestamp: Timestamp.now(), // ✅ Utiliser Timestamp.now()
+        timestamp: Timestamp.now(),
         read: false
       };
 
-      // ✅ Mettre à jour avec arrayUnion pour les messages
+      // Mettre à jour avec arrayUnion
       await updateDoc(doc(db, 'interventions', interventionId), {
         messages: arrayUnion(message),
         history: arrayUnion(createHistoryEntry(
           null,
           `Nouveau message de ${user.name || user.email}`,
-          user
+          user,
+          ['messages']
         ))
       });
 
@@ -495,7 +518,10 @@ const AppContent = () => {
     }
   };
 
-  // ========== HANDLERS UTILISATEURS ==========
+  // ========================================
+  // 👤 HANDLERS UTILISATEURS
+  // ========================================
+
   const handleOpenCreateUser = () => {
     setUserModalMode('create');
     setSelectedUser(null);
@@ -594,7 +620,10 @@ const AppContent = () => {
     }
   };
 
-  // ========== CHARGEMENT ==========
+  // ========================================
+  // 🎨 CHARGEMENT & RENDU
+  // ========================================
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -622,16 +651,6 @@ const AppContent = () => {
     roomIssueFrequency: []
   };
 
-  const createHistoryEntry = (status, comment, currentUser) => ({
-    id: `history_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    status: status || 'updated',
-    date: serverTimestamp(), 
-    by: currentUser.uid,
-    byName: currentUser.name || currentUser.email,
-    comment: comment || 'Modification effectuée',
-    fields: [] 
-  });
-  // ========== RENDU PRINCIPAL ==========
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
       {/* Overlay mobile */}
@@ -782,7 +801,7 @@ const AppContent = () => {
           intervention={selectedIntervention}
           onClose={() => setSelectedIntervention(null)}
           onUpdateIntervention={handleUpdateIntervention}
-          onAddMessage={handleAddMessage} // ✅ AJOUT
+          onAddMessage={handleAddMessage}
           onToggleRoomBlock={handleToggleRoomBlock}
           user={user}
         />
@@ -839,7 +858,9 @@ const AppContent = () => {
   );
 };
 
-// App principale
+// ========================================
+// 🎯 APP PRINCIPALE
+// ========================================
 const App = () => {
   return (
     <ErrorBoundary>
