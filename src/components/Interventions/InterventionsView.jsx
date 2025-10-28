@@ -1,27 +1,50 @@
 import React from 'react';
-import { Search, Plus, MapPin, Camera } from 'lucide-react';
+import { Search, Plus, MapPin, Camera, AlertCircle } from 'lucide-react';
 
 const InterventionsView = ({ 
-  interventions = [], // ✅ Valeur par défaut
+  interventions = [],
   onInterventionClick, 
   onCreateClick,
-  searchTerm = '', // ✅ Valeur par défaut
+  searchTerm = '',
   onSearchChange,
-  filterStatus = 'all', // ✅ Valeur par défaut
-  onFilterChange 
+  filterStatus = 'all',
+  onFilterChange,
+  dropdowns = {} // ✅ Ajout pour accéder aux labels des dropdowns
 }) => {
-  // ✅ Validation des données avec des vérifications de sécurité
+  // ✅ Helper pour récupérer le label depuis les dropdowns
+  const getRoomTypeLabel = (value) => {
+    if (!value) return 'Non spécifié';
+    const roomType = dropdowns.roomTypes?.find(rt => rt.value === value);
+    return roomType?.name || value;
+  };
+
+  const getPriorityLabel = (value) => {
+    if (!value) return '';
+    const priority = dropdowns.priorities?.find(p => p.value === value);
+    return priority?.name || value;
+  };
+
+  // ✅ Fonction pour formater l'affichage principal
+  const getMainDisplay = (intervention) => {
+    const roomTypeLabel = getRoomTypeLabel(intervention.roomType);
+    
+    // Si c'est une chambre et qu'il y a un numéro
+    if (intervention.roomType === 'chambre' && intervention.location) {
+      return `${roomTypeLabel} ${intervention.location}`;
+    }
+    
+    // Sinon juste le type de local
+    return roomTypeLabel;
+  };
+
   const filteredInterventions = interventions.filter(intervention => {
-    // Vérifier que l'intervention existe
     if (!intervention) return false;
     
-    // Recherche avec vérifications de sécurité
     const matchesSearch = 
       (intervention.location?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
       (intervention.missionSummary?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
       (intervention.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     
-    // Filtre par statut
     const matchesStatus = filterStatus === 'all' || intervention.status === filterStatus;
     
     return matchesSearch && matchesStatus;
@@ -58,10 +81,10 @@ const InterventionsView = ({
 
   const getPriorityColor = (priority) => {
     switch (priority) {
-      case 'urgent': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-      case 'high': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
-      case 'normal': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-      default: return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+      case 'urgent': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 border-red-300 dark:border-red-700';
+      case 'high': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300 border-orange-300 dark:border-orange-700';
+      case 'normal': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 border-blue-300 dark:border-blue-700';
+      default: return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 border-green-300 dark:border-green-700';
     }
   };
 
@@ -116,20 +139,25 @@ const InterventionsView = ({
           >
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1 min-w-0">
+                {/* ✅ Affichage : TYPE DE LOCAL + N° (si chambre) + Priorité */}
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <MapPin size={18} className="text-gray-500 flex-shrink-0" />
+                  
+                  {/* Type de local avec vraie casse */}
                   <span className="font-semibold text-gray-800 dark:text-white text-lg">
-                    {intervention.location || 'Sans localisation'}
+                    {getRoomTypeLabel(intervention.roomType)}
+                    {/* Ajouter le numéro si c'est une chambre */}
+                    {intervention.roomType === 'chambre' && intervention.location && ` ${intervention.location}`}
                   </span>
-                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded-full">
-                    {intervention.roomType || 'Non spécifié'}
-                  </span>
+                  
+                  {/* Priorité avec vraie casse */}
                   {intervention.priority && (
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(intervention.priority)}`}>
-                      {intervention.priority}
+                      {getPriorityLabel(intervention.priority)}
                     </span>
                   )}
                 </div>
+                
                 <p className="text-gray-600 dark:text-gray-300 mb-2 line-clamp-2">
                   {intervention.missionSummary || intervention.description || 'Pas de description'}
                 </p>
@@ -145,15 +173,16 @@ const InterventionsView = ({
                 </div>
               </div>
               
-              <div className="text-right ml-4 flex-shrink-0">
-                <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(intervention.status)}`}>
+              {/* Badges de statut et photos */}
+              <div className="text-right ml-4 flex-shrink-0 space-y-2">
+                <span className={`inline-flex px-3 py-1.5 rounded-lg text-sm font-medium ${getStatusColor(intervention.status)}`}>
                   {getStatusText(intervention.status)}
                 </span>
                 
                 {intervention.photos && intervention.photos.length > 0 && (
-                  <div className="flex items-center gap-1 mt-2 text-gray-500 dark:text-gray-400">
-                    <Camera size={14} />
-                    <span className="text-xs">{intervention.photos.length}</span>
+                  <div className="flex items-center justify-end gap-1 text-gray-500 dark:text-gray-400">
+                    <Camera size={16} />
+                    <span className="text-sm font-medium">{intervention.photos.length}</span>
                   </div>
                 )}
               </div>

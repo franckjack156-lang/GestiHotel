@@ -1,4 +1,3 @@
-// src/App.jsx - VERSION FINALE CORRIGÉE
 
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -110,11 +109,14 @@ const AppContent = () => {
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedIntervention, setSelectedIntervention] = useState(null);
+  const [selectedInterventionId, setSelectedInterventionId] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // ✅ Charger les interventions
+  // ✅ TOUS LES useEffect DOIVENT ÊTRE ICI, DANS CET ORDRE, AVANT TOUTE LOGIQUE CONDITIONNELLE
+
+  // Effect 1: Charger les interventions
   useEffect(() => {
     if (!user) {
       setInterventions([]);
@@ -189,7 +191,7 @@ const AppContent = () => {
     };
   }, [user]);
 
-  // ✅ Analytics
+  // Effect 2: Analytics user
   useEffect(() => {
     if (user) {
       setAnalyticsUser(user.uid, {
@@ -200,13 +202,24 @@ const AppContent = () => {
     }
   }, [user]);
 
+  // Effect 3: Analytics page view
   useEffect(() => {
     if (currentView) {
       analyticsEvents.pageView(currentView);
     }
   }, [currentView]);
 
-  // ✅ Vérifications conditionnelles
+  // Effect 4: Synchroniser selectedIntervention avec les mises à jour
+  useEffect(() => {
+    if (selectedInterventionId && interventions.length > 0) {
+      const updated = interventions.find(i => i.id === selectedInterventionId);
+      if (updated) {
+        setSelectedIntervention(updated);
+      }
+    }
+  }, [interventions, selectedInterventionId]);
+
+  // ✅ MAINTENANT on peut faire les vérifications conditionnelles
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -222,11 +235,18 @@ const AppContent = () => {
     return <AuthScreen />;
   }
 
+  // Variable calculée (pas un hook)
   const isLoading = authLoading || dataLoading || interventionsLoading;
 
   // ✅ Handlers interventions
   const handleInterventionClick = (intervention) => {
     setSelectedIntervention(intervention);
+    setSelectedInterventionId(intervention.id);
+  };
+
+  const handleCloseInterventionModal = () => {
+    setSelectedIntervention(null);
+    setSelectedInterventionId(null);
   };
 
   const handleCreateIntervention = async (interventionData, photos) => {
@@ -484,6 +504,7 @@ const AppContent = () => {
             {currentView === 'interventions' && (
               <InterventionsView
                 interventions={interventions}
+                dropdowns={data}
                 onInterventionClick={handleInterventionClick}
                 onCreateClick={() => setIsCreateInterventionModalOpen(true)}
                 searchTerm={searchTerm}
@@ -647,17 +668,13 @@ const AppContent = () => {
       {selectedIntervention && (
         <InterventionDetailModal
           intervention={selectedIntervention}
-          onClose={() => setSelectedIntervention(null)}
+          onClose={handleCloseInterventionModal}
           onUpdate={async (updates, photos = []) => {
             const result = await handleUpdateIntervention(
               selectedIntervention.id, 
               updates, 
               photos
             );
-            if (result.success) {
-              // Ne pas fermer la modal automatiquement
-              // setSelectedIntervention(null);
-            }
             return result;
           }}
           onSendMessage={async (message, photos = []) => {

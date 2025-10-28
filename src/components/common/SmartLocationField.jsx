@@ -1,10 +1,9 @@
-// src/components/common/SmartLocationField.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Plus, Check, X, Loader } from 'lucide-react';
 
 /**
  * Champ de localisation intelligent avec :
- * - Suggestions en temps réel
+ * - Suggestions en temps réel (dès 1 caractère)
  * - Détection des doublons
  * - Ajout rapide de nouvelles localisations
  * - État de la chambre (libre/bloquée)
@@ -16,7 +15,7 @@ const SmartLocationField = ({
   blockedRooms = [],
   onAddLocation,
   required = false,
-  placeholder = "Ex: Chambre 206, Suite 301...",
+  placeholder = "...",
   className = ""
 }) => {
   const [inputValue, setInputValue] = useState(value || '');
@@ -50,7 +49,8 @@ const SmartLocationField = ({
 
   // Filtrer les suggestions
   useEffect(() => {
-    if (!inputValue || inputValue.length < 2) {
+    // ✅ CORRECTION 1: Afficher dès 1 caractère
+    if (!inputValue || inputValue.length < 1) {
       setFilteredSuggestions([]);
       setCanAddNew(false);
       return;
@@ -63,11 +63,11 @@ const SmartLocationField = ({
 
     setFilteredSuggestions(filtered);
 
-    // Vérifier si on peut ajouter une nouvelle localisation
+    // ✅ CORRECTION 2: Permettre d'ajouter dès 2 caractères
     const exactMatch = locations.some(loc => 
       loc.name.toLowerCase() === term
     );
-    setCanAddNew(inputValue.trim().length >= 3 && !exactMatch);
+    setCanAddNew(inputValue.trim().length >= 2 && !exactMatch);
   }, [inputValue, locations]);
 
   const handleInputChange = (e) => {
@@ -83,43 +83,41 @@ const SmartLocationField = ({
     setShowSuggestions(false);
   };
 
-    const handleAddNew = async () => {
-  const trimmedValue = inputValue.trim();
-  
-  // Vérification doublon
-  const exists = locations.some(loc => 
-    loc.name.toLowerCase() === trimmedValue.toLowerCase()
-  );
-  
-  if (exists) {
-    alert('Cette localisation existe déjà');
-    return;
-  }
-  
-  setIsAdding(true);
-  
-  try {
-    const result = await onAddLocation({
-      name: trimmedValue,
-      value: trimmedValue.toLowerCase().replace(/\s+/g, '-'),
-      category: 'locations',
-      active: true
-    });
+  const handleAddNew = async () => {
+    const trimmedValue = inputValue.trim();
     
-    if (result.success) {
-      // Sélectionner automatiquement la nouvelle localisation
-      setInputValue(trimmedValue);
-      onChange(trimmedValue);
-      setShowSuggestions(false);
-      setCanAddNew(false);
+    // Vérification doublon
+    const exists = locations.some(loc => 
+      loc.name.toLowerCase() === trimmedValue.toLowerCase()
+    );
+    
+    if (exists) {
+      alert('Cette localisation existe déjà');
+      return;
     }
-  } catch (error) {
-    console.error('Erreur ajout localisation:', error);
-    alert('Erreur lors de l\'ajout de la localisation');
-  } finally {
-    setIsAdding(false);
-  }
-};
+    
+    setIsAdding(true);
+    
+    try {
+      const result = await onAddLocation({
+        name: trimmedValue,
+        value: trimmedValue.toLowerCase().replace(/\s+/g, '-'),
+        category: 'locations',
+        active: true
+      });
+      
+      if (result.success) {
+        // ✅ CORRECTION 3: Ne pas modifier ici, c'est géré par le parent
+        setShowSuggestions(false);
+        setCanAddNew(false);
+      }
+    } catch (error) {
+      console.error('Erreur ajout localisation:', error);
+      alert('Erreur lors de l\'ajout de la localisation');
+    } finally {
+      setIsAdding(false);
+    }
+  };
 
   const getRoomStatus = () => {
     if (!inputValue) return null;
@@ -164,8 +162,8 @@ const SmartLocationField = ({
         />
       </div>
 
-      {/* Dropdown des suggestions */}
-      {showSuggestions && (inputValue.length >= 2) && (
+      {/* ✅ CORRECTION 4: Dropdown des suggestions dès 1 caractère */}
+      {showSuggestions && (inputValue.length >= 1) && (
         <div 
           ref={dropdownRef}
           className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-80 overflow-y-auto"
@@ -238,8 +236,9 @@ const SmartLocationField = ({
               <MapPin size={32} className="mx-auto mb-2 opacity-50" />
               <p>Aucune suggestion trouvée</p>
               <p className="text-xs mt-1">
-                {inputValue.length < 3 
-                  ? 'Tapez au moins 3 caractères' 
+                {/* ✅ CORRECTION 5: Message adapté */}
+                {inputValue.length < 2 
+                  ? 'Continuez à taper...' 
                   : 'Continuez à taper pour ajouter une nouvelle localisation'
                 }
               </p>
@@ -265,9 +264,9 @@ const SmartLocationField = ({
         </div>
       )}
 
-      {/* Aide contextuelle */}
+      {/* ✅ CORRECTION 6: Aide contextuelle mise à jour */}
       <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-        💡 Tapez au moins 2 caractères pour voir les suggestions. 
+        💡 Tapez au moins 1 chiffre pour voir les suggestions. 
         Si la localisation n'existe pas, vous pourrez l'ajouter directement.
       </div>
     </div>

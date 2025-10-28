@@ -1,12 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Calendar, User, MapPin, FileText, Package, MessageSquare, Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import { X, Calendar, User, MapPin, FileText, Package, MessageSquare, Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, Loader2, Home } from 'lucide-react';
 
 // ✅ FONCTION HELPER POUR FORMATER LES TIMESTAMPS
 const formatTimestamp = (timestamp) => {
   try {
     if (!timestamp) return 'Date inconnue';
     
-    // Si c'est un timestamp Firestore
     if (timestamp.toDate && typeof timestamp.toDate === 'function') {
       return timestamp.toDate().toLocaleString('fr-FR', {
         day: '2-digit',
@@ -17,7 +16,6 @@ const formatTimestamp = (timestamp) => {
       });
     }
     
-    // Si c'est une Date JavaScript
     if (timestamp instanceof Date) {
       return timestamp.toLocaleString('fr-FR', {
         day: '2-digit',
@@ -28,7 +26,6 @@ const formatTimestamp = (timestamp) => {
       });
     }
     
-    // Si c'est un string ou un nombre
     const date = new Date(timestamp);
     if (!isNaN(date.getTime())) {
       return date.toLocaleString('fr-FR', {
@@ -47,7 +44,6 @@ const formatTimestamp = (timestamp) => {
   }
 };
 
-// ✅ FONCTION HELPER POUR FORMATER LA DATE COURTE
 const formatShortDate = (timestamp) => {
   try {
     if (!timestamp) return '';
@@ -80,9 +76,11 @@ const InterventionDetailModal = ({
   onSendMessage,
   user,
   users = [],
+  dropdowns = {},
   onAddSupply,
   onRemoveSupply,
-  onToggleSupplyStatus
+  onToggleSupplyStatus,
+  onToggleRoomBlock
 }) => {
   const [activeTab, setActiveTab] = useState('details');
   const [newMessage, setNewMessage] = useState('');
@@ -101,6 +99,35 @@ const InterventionDetailModal = ({
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [activeTab, intervention?.messages]);
+
+  // ✅ Récupérer les informations du technicien assigné
+  const assignedUser = users.find(u => u.id === intervention?.assignedTo);
+  const assignedName = intervention?.assignedToName || assignedUser?.name || 'Non assigné';
+
+  // ✅ Fonctions pour obtenir les labels depuis les dropdowns
+  const getRoomTypeLabel = (value) => {
+    if (!value) return 'Non spécifié';
+    const roomType = dropdowns.roomTypes?.find(rt => rt.value === value);
+    return roomType?.name || value;
+  };
+
+  const getMissionTypeLabel = (value) => {
+    if (!value) return 'Non spécifié';
+    const missionType = dropdowns.missionTypes?.find(mt => mt.value === value);
+    return missionType?.name || value;
+  };
+
+  const getInterventionTypeLabel = (value) => {
+    if (!value) return 'Non spécifié';
+    const interventionType = dropdowns.interventionTypes?.find(it => it.value === value);
+    return interventionType?.name || value;
+  };
+
+  const getPriorityLabel = (value) => {
+    if (!value) return 'Normale';
+    const priority = dropdowns.priorities?.find(p => p.value === value);
+    return priority?.name || value;
+  };
 
   const handlePhotoSelect = (e) => {
     const files = Array.from(e.target.files);
@@ -193,33 +220,39 @@ const InterventionDetailModal = ({
   const currentStatus = statusConfig[intervention?.status] || statusConfig.todo;
   const StatusIcon = currentStatus.icon;
 
-  const assignedUser = users.find(u => u.id === intervention?.assignedTo);
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700 dark:to-gray-800">
           <div className="flex-1">
-            <h2 className="text-2xl font-bold text-gray-900">{intervention?.title}</h2>
-            <div className="flex items-center gap-4 mt-2">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              {intervention?.missionSummary || 'Intervention'}
+            </h2>
+            <div className="flex items-center gap-4 mt-2 flex-wrap">
               <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${currentStatus.color}`}>
                 <StatusIcon className="w-4 h-4" />
                 {currentStatus.label}
               </span>
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-gray-600 dark:text-gray-400">
                 <Calendar className="w-4 h-4 inline mr-1" />
                 {formatShortDate(intervention?.createdAt)}
               </span>
+              {intervention?.roomType && (
+                <span className="text-sm text-gray-600 dark:text-gray-400 px-2 py-1 bg-white dark:bg-gray-700 rounded-full flex items-center gap-1">
+                  <Home className="w-4 h-4" />
+                  {getRoomTypeLabel(intervention.roomType)}
+                </span>
+              )}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <X className="w-6 h-6 text-gray-500" />
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            <X className="w-6 h-6 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 bg-gray-50">
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
           <div className="flex px-6">
             {[
               { id: 'details', label: 'Détails', icon: FileText },
@@ -234,14 +267,14 @@ const InterventionDetailModal = ({
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium transition-colors relative ${
                     activeTab === tab.id
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                      ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:border-gray-300'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
                   {tab.label}
                   {tab.badge > 0 && (
-                    <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full">
+                    <span className="ml-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 text-xs rounded-full">
                       {tab.badge}
                     </span>
                   )}
@@ -256,38 +289,101 @@ const InterventionDetailModal = ({
           {activeTab === 'details' && (
             <div className="space-y-6">
               {/* Informations principales */}
-              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
-                  <div>
-                    <div className="text-sm text-gray-500">Logement</div>
-                    <div className="font-medium">{intervention?.logement}</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <User className="w-5 h-5 text-gray-400 mt-0.5" />
-                  <div>
-                    <div className="text-sm text-gray-500">Assigné à</div>
-                    <div className="font-medium">
-                      {assignedUser?.name || intervention?.assignedToName || 'Non assigné'}
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Localisation */}
+                  <div className="flex items-start gap-3">
+                    <MapPin className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Localisation</div>
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        {intervention?.location || 'Non spécifié'}
+                      </div>
                     </div>
                   </div>
+
+                  {/* Assigné à */}
+                  <div className="flex items-start gap-3">
+                    <User className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Assigné à</div>
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        {assignedName}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Type de mission */}
+                  {intervention?.missionType && (
+                    <div className="flex items-start gap-3">
+                      <Wrench className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Type de mission</div>
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {getMissionTypeLabel(intervention.missionType)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Type d'intervention */}
+                  {intervention?.interventionType && (
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Type d'intervention</div>
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {getInterventionTypeLabel(intervention.interventionType)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Priorité */}
+                  {intervention?.priority && (
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Priorité</div>
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {getPriorityLabel(intervention.priority)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Créateur */}
+                  {intervention?.creatorName && (
+                    <div className="flex items-start gap-3">
+                      <User className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Créé par</div>
+                        <div className="text-gray-900 dark:text-white">
+                          {intervention.creatorName}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-start gap-3">
-                  <FileText className="w-5 h-5 text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="text-sm text-gray-500">Description</div>
-                    <div className="text-gray-900 whitespace-pre-wrap">{intervention?.description}</div>
+                {/* Commentaire (full width) */}
+                {intervention?.missionComment && (
+                  <div className="flex items-start gap-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                    <FileText className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Commentaire</div>
+                      <div className="text-gray-900 dark:text-white whitespace-pre-wrap">
+                        {intervention.missionComment}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Actions rapides */}
-              {user?.role === 'admin' && (
+              {(user?.role === 'manager' || user?.role === 'superadmin') && (
                 <div>
-                  <h3 className="font-semibold text-gray-900 mb-3">Actions rapides</h3>
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Actions rapides</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {['todo', 'inprogress', 'ordering', 'completed'].map(status => {
                       const config = statusConfig[status];
@@ -299,12 +395,12 @@ const InterventionDetailModal = ({
                           disabled={isSubmitting || intervention?.status === status}
                           className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                             intervention?.status === status
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                              ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/30'
+                              : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 hover:bg-blue-50 dark:hover:border-blue-400 dark:hover:bg-blue-900/20'
                           } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                          <Icon className="w-5 h-5" />
-                          <span className="text-xs font-medium text-center">{config.label}</span>
+                          <Icon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                          <span className="text-xs font-medium text-center text-gray-700 dark:text-gray-300">{config.label}</span>
                         </button>
                       );
                     })}
@@ -313,14 +409,14 @@ const InterventionDetailModal = ({
               )}
 
               {/* Commentaire technicien */}
-              {(user?.role === 'technician' || user?.role === 'admin') && (
+              {(user?.role === 'technician' || user?.role === 'manager' || user?.role === 'superadmin') && (
                 <div>
-                  <h3 className="font-semibold text-gray-900 mb-3">Commentaire technicien</h3>
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Commentaire technicien</h3>
                   <textarea
                     value={techComment}
                     onChange={(e) => setTechComment(e.target.value)}
                     placeholder="Ajouter des notes techniques..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     rows={4}
                     disabled={isSubmitting}
                   />
@@ -352,7 +448,7 @@ const InterventionDetailModal = ({
                   onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
                   className="flex items-center justify-between w-full mb-3"
                 >
-                  <h3 className="font-semibold text-gray-900">Historique</h3>
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Historique</h3>
                   {isHistoryExpanded ? (
                     <ChevronUp className="w-5 h-5 text-gray-400" />
                   ) : (
@@ -367,13 +463,13 @@ const InterventionDetailModal = ({
                         const config = statusConfig[event.status] || statusConfig.todo;
                         const Icon = config.icon;
                         return (
-                          <div key={event.id || index} className="flex gap-3 p-3 bg-gray-50 rounded-lg">
+                          <div key={event.id || index} className="flex gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                             <div className={`p-2 rounded-lg ${config.color}`}>
                               <Icon className="w-4 h-4" />
                             </div>
                             <div className="flex-1">
-                              <div className="font-medium text-gray-900">{event.comment}</div>
-                              <div className="text-sm text-gray-500 mt-1">
+                              <div className="font-medium text-gray-900 dark:text-white">{event.comment}</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                                 Par {event.byName} • {formatTimestamp(event.date)}
                               </div>
                             </div>
@@ -381,7 +477,7 @@ const InterventionDetailModal = ({
                         );
                       })
                     ) : (
-                      <p className="text-gray-500 text-sm italic">Aucun historique</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm italic">Aucun historique</p>
                     )}
                   </div>
                 )}
@@ -398,13 +494,13 @@ const InterventionDetailModal = ({
                     return (
                       <div key={msg.id || index} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                          isOwn ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                          isOwn ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                         }`}>
                           {!isOwn && (
                             <div className="text-xs font-medium mb-1 opacity-75">{msg.senderName}</div>
                           )}
                           <div className="whitespace-pre-wrap">{msg.text}</div>
-                          <div className={`text-xs mt-1 ${isOwn ? 'text-blue-100' : 'text-gray-500'}`}>
+                          <div className={`text-xs mt-1 ${isOwn ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
                             {formatTimestamp(msg.timestamp)}
                           </div>
                         </div>
@@ -420,7 +516,7 @@ const InterventionDetailModal = ({
                 <div ref={messagesEndRef} />
               </div>
 
-              <div className="border-t border-gray-200 pt-4">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -428,7 +524,7 @@ const InterventionDetailModal = ({
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
                     placeholder="Écrire un message..."
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     disabled={isSubmitting}
                   />
                   <button
@@ -455,19 +551,19 @@ const InterventionDetailModal = ({
                   value={newSupply.name}
                   onChange={(e) => setNewSupply({ ...newSupply, name: e.target.value })}
                   placeholder="Nom de la fourniture"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
                 <input
                   type="number"
                   value={newSupply.quantity}
                   onChange={(e) => setNewSupply({ ...newSupply, quantity: e.target.value })}
                   placeholder="Qté"
-                  className="w-20 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-20 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
                 <select
                   value={newSupply.unit}
                   onChange={(e) => setNewSupply({ ...newSupply, unit: e.target.value })}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="pièce">pièce</option>
                   <option value="mètre">mètre</option>
@@ -485,26 +581,26 @@ const InterventionDetailModal = ({
               <div className="space-y-2">
                 {intervention?.suppliesNeeded?.length > 0 ? (
                   intervention.suppliesNeeded.map((supply, index) => (
-                    <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                       <button
                         onClick={() => onToggleSupplyStatus(index)}
                         className={`p-1 rounded ${
-                          supply.ordered ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'
+                          supply.ordered ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-200 text-gray-400 dark:bg-gray-600 dark:text-gray-500'
                         }`}
                       >
                         <Check className="w-4 h-4" />
                       </button>
                       <div className="flex-1">
-                        <div className={supply.ordered ? 'line-through text-gray-400' : ''}>
+                        <div className={supply.ordered ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}>
                           {supply.name}
                         </div>
-                        <div className="text-sm text-gray-500">
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
                           {supply.quantity} {supply.unit}
                         </div>
                       </div>
                       <button
                         onClick={() => onRemoveSupply(index)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -534,7 +630,7 @@ const InterventionDetailModal = ({
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isSubmitting}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Paperclip className="w-5 h-5" />
                   Sélectionner des photos
