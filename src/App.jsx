@@ -53,7 +53,8 @@ import {
   updateDoc,
   doc,
   serverTimestamp,
-  getDocs
+  getDocs,
+  getDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from './config/firebase';
@@ -250,7 +251,9 @@ const AppContent = () => {
         createdByName: user.name || user.email,
         status: 'todo',
         messages: [],
+        suppliesNeeded: [],
         history: [{
+          id: `history_${Date.now()}`,
           status: 'todo',
           date: new Date().toISOString(),
           by: user.uid,
@@ -304,6 +307,24 @@ const AppContent = () => {
       if (photoUrls.length > 0) {
         const intervention = interventions.find(i => i.id === interventionId);
         updateData.photos = [...(intervention?.photos || []), ...photoUrls];
+      }
+
+      // Ajouter à l'historique si changement de statut
+      if (updates.status) {
+        const intervention = interventions.find(i => i.id === interventionId);
+        const currentHistory = intervention?.history || [];
+        
+        updateData.history = [
+          ...currentHistory,
+          {
+            id: `history_${Date.now()}`,
+            status: updates.status,
+            date: new Date().toISOString(),
+            by: user.uid,
+            byName: user.name || user.email,
+            comment: updates.comment || `Statut changé en ${updates.status}`
+          }
+        ];
       }
 
       await updateDoc(doc(db, 'interventions', interventionId), updateData);
@@ -489,7 +510,7 @@ const AppContent = () => {
             )}
 
             {/* Calendrier/Planning */}
-            {currentView === 'calendar' && (
+            {currentView === 'planning' && (
               <CalendarView
                 interventions={interventions}
                 users={users}
@@ -627,7 +648,188 @@ const AppContent = () => {
         <InterventionDetailModal
           intervention={selectedIntervention}
           onClose={() => setSelectedIntervention(null)}
-          onUpdateIntervention={handleUpdateIntervention}
+          onUpdate={async (updates, photos = []) => {
+            const result = await handleUpdateIntervention(
+              selectedIntervention.id, 
+              updates, 
+              photos
+            );
+            if (result.success) {
+              // Ne pas fermer la modal automatiquement
+              // setSelectedIntervention(null);
+            }
+            return result;
+          }}
+          onSendMessage={async (message, photos = []) => {
+            try {
+              let photoUrls = [];
+              if (photos && photos.length > 0) {
+                for (const photo of photos) {
+                  const storageRef = ref(
+                    storage, 
+                    `interventions/${selectedIntervention.id}/messages/${Date.now()}_${photo.name}`
+                  );
+                  const snapshot = await uploadBytes(storageRef, photo);
+                  const downloadURL = await getDownloadURL(snapshot.ref);
+                  photoUrls.push(downloadURL);
+                }
+              }
+
+              const interventionRef = doc(db, 'interventions', selectedIntervention.id);
+              const interventionSnap = await getDoc(interventionRef);
+              
+              if (!interventionSnap.exists()) {
+                throw new Error('Intervention non trouvée');
+              }
+
+              const currentData = interventionSnap.data();
+              const currentMessages = currentData.messages || [];
+
+              const newMessage = {
+                id: `msg_${Date.now()}`,
+                text: message,
+                photos: photoUrls,
+                senderId: user.uid,
+                senderName: user.name || user.email,
+                timestamp: new Date(),
+                read: false
+              };
+
+              await updateDoc(interventionRef, {
+                messages: [...currentMessages, newMessage],
+                updatedAt: serverTimestamp(),
+                updatedBy: user.uid
+              });
+
+              addToast({
+                type: 'success',
+                title: 'Message envoyé',
+                message: 'Votre message a été ajouté'
+              });
+
+              return { success: true };
+            } catch (error) {
+              console.error('❌ Erreur envoi message:', error);
+              addToast({
+                type: 'error',
+                title: 'Erreur',
+                message: 'Erreur lors de l\'envoi du message'
+              });
+              return { success: false, error: error.message };
+            }
+          }}
+          onAddSupply={async (supply) => {
+            try {
+              const interventionRef = doc(db, 'interventions', selectedIntervention.id);
+              const interventionSnap = await getDoc(interventionRef);
+              
+              if (!interventionSnap.exists()) {
+                throw new Error('Intervention non trouvée');
+              }
+
+              const currentData = interventionSnap.data();
+              const currentSupplies = currentData.suppliesNeeded || [];
+
+              const newSupply = {
+                id: `supply_${Date.now()}`,
+                ...supply,
+                ordered: false,
+                addedAt: new Date(),
+                addedBy: user.uid,
+                addedByName: user.name || user.email
+              };
+
+              await updateDoc(interventionRef, {
+                suppliesNeeded: [...currentSupplies, newSupply],
+                updatedAt: serverTimestamp(),
+                updatedBy: user.uid
+              });
+
+              addToast({
+                type: 'success',
+                title: 'Fourniture ajoutée',
+                message: `${supply.name} a été ajouté à la liste`
+              });
+
+              return { success: true };
+            } catch (error) {
+              console.error('❌ Erreur ajout fourniture:', error);
+              addToast({
+                type: 'error',
+                title: 'Erreur',
+                message: 'Erreur lors de l\'ajout de la fourniture'
+              });
+              return { success: false, error: error.message };
+            }
+          }}
+          onRemoveSupply={async (supplyIndex) => {
+            try {
+              const interventionRef = doc(db, 'interventions', selectedIntervention.id);
+              const interventionSnap = await getDoc(interventionRef);
+              
+              if (!interventionSnap.exists()) {
+                throw new Error('Intervention non trouvée');
+              }
+
+              const currentData = interventionSnap.data();
+              const currentSupplies = currentData.suppliesNeeded || [];
+              
+              const updatedSupplies = currentSupplies.filter((_, index) => index !== supplyIndex);
+
+              await updateDoc(interventionRef, {
+                suppliesNeeded: updatedSupplies,
+                updatedAt: serverTimestamp(),
+                updatedBy: user.uid
+              });
+
+              addToast({
+                type: 'success',
+                title: 'Fourniture supprimée',
+                message: 'La fourniture a été retirée de la liste'
+              });
+
+              return { success: true };
+            } catch (error) {
+              console.error('❌ Erreur suppression fourniture:', error);
+              addToast({
+                type: 'error',
+                title: 'Erreur',
+                message: 'Erreur lors de la suppression'
+              });
+              return { success: false, error: error.message };
+            }
+          }}
+          onToggleSupplyStatus={async (supplyIndex) => {
+            try {
+              const interventionRef = doc(db, 'interventions', selectedIntervention.id);
+              const interventionSnap = await getDoc(interventionRef);
+              
+              if (!interventionSnap.exists()) {
+                throw new Error('Intervention non trouvée');
+              }
+
+              const currentData = interventionSnap.data();
+              const currentSupplies = currentData.suppliesNeeded || [];
+              
+              const updatedSupplies = currentSupplies.map((supply, index) => {
+                if (index === supplyIndex) {
+                  return { ...supply, ordered: !supply.ordered };
+                }
+                return supply;
+              });
+
+              await updateDoc(interventionRef, {
+                suppliesNeeded: updatedSupplies,
+                updatedAt: serverTimestamp(),
+                updatedBy: user.uid
+              });
+
+              return { success: true };
+            } catch (error) {
+              console.error('❌ Erreur changement statut fourniture:', error);
+              return { success: false, error: error.message };
+            }
+          }}
           onToggleRoomBlock={handleToggleRoomBlock}
           user={user}
         />
