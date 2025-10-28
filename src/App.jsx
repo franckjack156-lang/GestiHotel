@@ -129,23 +129,29 @@ const AppContent = () => {
     (snapshot) => {
       const data = snapshot.docs.map(doc => {
         const docData = doc.data();
+        const convertTimestamp = (ts) => {
+          if (!ts) return new Date();
+          if (ts.toDate) return ts.toDate();
+          if (ts instanceof Date) return ts;
+          return new Date(ts);
+        };
         return {
-              id: doc.id,
-              ...docData,
-              createdAt: docData.createdAt?.toDate ? docData.createdAt.toDate() : new Date(),
-              updatedAt: docData.updatedAt?.toDate ? docData.updatedAt.toDate() : null,
-              
-              // ✅ Convertir les timestamps des messages
-              messages: docData.messages?.map(msg => ({
-                ...msg,
-                timestamp: msg.timestamp?.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp)
-              })) || [],
-              
-              // ✅ Convertir les timestamps de l'historique
-              history: docData.history?.map(entry => ({
-                ...entry,
-                date: entry.date?.toDate ? entry.date.toDate() : new Date(entry.date)
-              })) || []
+            id: doc.id,
+            ...docData,
+            createdAt: convertTimestamp(docData.createdAt),
+            updatedAt: docData.updatedAt ? convertTimestamp(docData.updatedAt) : null,
+            
+            // ✅ Conversion messages
+            messages: (docData.messages || []).map(msg => ({
+              ...msg,
+              timestamp: convertTimestamp(msg.timestamp)
+            })),
+            
+            // ✅ AJOUT conversion history
+            history: (docData.history || []).map(entry => ({
+              ...entry,
+              date: convertTimestamp(entry.date)
+            }))
             };
           });
       console.log('✅ Interventions chargées:', data.length);
@@ -619,7 +625,7 @@ const AppContent = () => {
   const createHistoryEntry = (status, comment, currentUser) => ({
     id: `history_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     status: status || 'updated',
-    date: Timestamp.now(), 
+    date: serverTimestamp(), 
     by: currentUser.uid,
     byName: currentUser.name || currentUser.email,
     comment: comment || 'Modification effectuée',

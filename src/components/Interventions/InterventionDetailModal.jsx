@@ -19,7 +19,6 @@ const InterventionDetailModal = ({
   const [newMessage, setNewMessage] = useState('');
   const [activeTab, setActiveTab] = useState('details');
   const [imageErrors, setImageErrors] = useState({});
-  const [localMessages, setLocalMessages] = useState(intervention?.messages || []);
   const { addToast } = useToast();
   
   const messagesEndRef = useRef(null);

@@ -84,9 +84,11 @@ const SmartLocationField = ({
   };
 
     const handleAddNew = async () => {
-  // Vérifier d'abord
+  const trimmedValue = inputValue.trim();
+  
+  // Vérification doublon
   const exists = locations.some(loc => 
-    loc.name.toLowerCase() === inputValue.toLowerCase()
+    loc.name.toLowerCase() === trimmedValue.toLowerCase()
   );
   
   if (exists) {
@@ -94,11 +96,29 @@ const SmartLocationField = ({
     return;
   }
   
-  const result = await onAddLocation({
-        name: inputValue.trim(),
-        value: inputValue.trim().toLowerCase().replace(/\s+/g, '-'),
-        category: 'locations'
-      });
+  setIsAdding(true);
+  
+  try {
+    const result = await onAddLocation({
+      name: trimmedValue,
+      value: trimmedValue.toLowerCase().replace(/\s+/g, '-'),
+      category: 'locations',
+      active: true
+    });
+    
+    if (result.success) {
+      // Sélectionner automatiquement la nouvelle localisation
+      setInputValue(trimmedValue);
+      onChange(trimmedValue);
+      setShowSuggestions(false);
+      setCanAddNew(false);
+    }
+  } catch (error) {
+    console.error('Erreur ajout localisation:', error);
+    alert('Erreur lors de l\'ajout de la localisation');
+  } finally {
+    setIsAdding(false);
+  }
 };
 
   const getRoomStatus = () => {
