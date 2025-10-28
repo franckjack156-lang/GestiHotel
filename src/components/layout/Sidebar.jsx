@@ -8,12 +8,12 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  Calendar,
+  FileSpreadsheet 
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../hooks/useSettings';
-import { Calendar } from 'lucide-react';
-
 const Sidebar = ({ 
   currentView, 
   onViewChange, 
@@ -34,6 +34,7 @@ const Sidebar = ({
     { id: 'analytics', label: 'Analytics', icon: BarChart, roles: ['manager', 'superadmin'] },
     { id: 'users', label: 'Gestion utilisateurs', icon: Users, roles: ['superadmin'] },
     { id: 'data-management', label: 'Données de référence', icon: Settings, roles: ['superadmin'] },
+    { id: 'excel-import', label: 'Import Excel', icon: FileSpreadsheet, roles: ['superadmin'] }
   ];
 
   const filteredNavigation = navigationItems.filter(item => 

@@ -28,6 +28,7 @@ import AdvancedAnalytics from './components/Dashboard/AdvancedAnalytics';
 import UsersManagementView from './components/Users/UsersManagementView';
 import CalendarView from './components/Planning/CalendarView';
 import ChatView from './components/Chat/ChatView';
+import ExcelImportView from './components/Admin/ExcelImportView';
 
 // Modals
 import AuthScreen from './components/Auth/AuthScreen';
@@ -638,6 +639,10 @@ const AppContent = () => {
                   </div>
                 </div>
               </div>
+            )}
+
+            {currentView === 'excel-import' && user.role === 'superadmin' && (
+              <ExcelImportView />
             )}
           </div>
         </main>
