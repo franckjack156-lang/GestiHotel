@@ -1,558 +1,743 @@
+// src/App.jsx - VERSION FINALE CORRIGÉE
+
 import React, { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastProvider, useToast } from './contexts/ToastContext';
+import { AppProvider, useApp } from './contexts/AppContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+
+// Analytics Firebase uniquement
+import { setAnalyticsUser, analyticsEvents } from './config/firebase';
+import ErrorBoundary from './components/common/ErrorBoundary';
+
+// ✅ Hooks - TOUS en premier
+import { useUnifiedData } from './hooks/useUnifiedData';
+import { useSettings } from './hooks/useSettings';
+import { useUserManagement } from './hooks/useUserManagement';
+
+// Layout
+import Header from './components/layout/Header';
+import Sidebar from './components/layout/Sidebar';
+import NotificationPanel from './components/Notifications/NotificationPanel';
+import AdvancedSearchView from './components/Search/AdvancedSearchView';
+
+// Vues
+import DashboardView from './components/Dashboard/DashboardView';
+import InterventionsView from './components/Interventions/InterventionsView';
+import AnalyticsView from './components/Analytics/AnalyticsView';
+import AdvancedAnalytics from './components/Dashboard/AdvancedAnalytics';
+import UsersManagementView from './components/Users/UsersManagementView';
+import CalendarView from './components/Planning/CalendarView';
+import ChatView from './components/Chat/ChatView';
+
+// Modals
+import AuthScreen from './components/Auth/AuthScreen';
+import LoadingSpinner from './components/common/LoadingSpinner';
+import Toast from './components/common/Toast';
+import UnifiedAdminModal from './components/Admin/UnifiedAdminModal';
+import CreateInterventionModal from './components/Interventions/CreateInterventionModal';
+import InterventionDetailModal from './components/Interventions/InterventionDetailModal';
+import SettingsModal from './components/Settings/SettingsModal';
+import CreateUserModal from './components/Users/CreateUserModal';
+import UserManagementModal from './components/Users/UserManagementModal';
+import UpdatePasswordModal from './components/Users/UpdatePasswordModal';
+
+// Firestore imports pour les interventions
 import { 
   collection, 
   query, 
-  onSnapshot, 
+  where, 
   orderBy, 
-  where,
+  onSnapshot,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
-  getDoc,
-  serverTimestamp
+  serverTimestamp,
+  getDocs
 } from 'firebase/firestore';
-import { db } from './config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from './config/firebase';
 
-// ✅ IMPORT CORRIGÉ - Depuis services/index.js
-import { 
-  authService, 
-  interventionService, 
-  storageService, 
-  userService 
-} from './services';
+const AppContent = () => {
+  const { user, loading: authLoading, logout } = useAuth();
+  const { toasts, removeToast } = useToast();
+  const { addToast } = useToast();
+  const { 
+    currentView, 
+    setCurrentView,
+    isCreateInterventionModalOpen,
+    setIsCreateInterventionModalOpen,
+    isSettingsModalOpen,
+    setIsSettingsModalOpen
+  } = useApp();
 
-// Components
-import Sidebar from './components/Layout/Sidebar';
-import Header from './components/Layout/Header';
-import DashboardView from './components/Dashboard/DashboardView';
-import InterventionsView from './components/Interventions/InterventionsView';
-import LogementsView from './components/Logements/LogementsView';
-import UsersView from './components/Users/UsersView';
-import SettingsView from './components/Settings/SettingsView';
-import LoginForm from './components/Auth/LoginForm';
-import CreateInterventionModal from './components/Interventions/CreateInterventionModal';
-import InterventionDetailModal from './components/Interventions/InterventionDetailModal';
-import UnifiedUserModal from './components/Users/UnifiedUserModal';
-import Toast from './components/Common/Toast';
-import { Loader2 } from 'lucide-react';
+  // ✅ Hooks de données - TOUJOURS appelés
+  const {
+    data,
+    loading: dataLoading,
+    error: dataError,
+    addItem,
+    updateItem,
+    deleteItem,
+    toggleActive,
+    getActiveItems
+  } = useUnifiedData(user);
 
-function App() {
-  // État
-  const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState('dashboard');
-  const [toasts, setToasts] = useState([]);
+  const { settings, updateSettings, resetSettings } = useSettings(user);
+
+  const {
+    users,
+    loading: usersLoading,
+    addUser,
+    updateUser,
+    deleteUser,
+    activateUser,
+    resetPassword,
+    updateUserPassword
+  } = useUserManagement();
+
+  // ✅ État local pour les interventions
   const [interventions, setInterventions] = useState([]);
-  const [logements, setLogements] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [isCreateInterventionModalOpen, setIsCreateInterventionModalOpen] = useState(false);
+  const [blockedRooms, setBlockedRooms] = useState([]);
+  const [interventionsLoading, setInterventionsLoading] = useState(true);
+
+  // État local - Modals
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [isUserManagementModalOpen, setIsUserManagementModalOpen] = useState(false);
+  const [isUpdatePasswordModalOpen, setIsUpdatePasswordModalOpen] = useState(false);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedIntervention, setSelectedIntervention] = useState(null);
-  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [userModalMode, setUserModalMode] = useState('create');
   const [selectedUser, setSelectedUser] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
 
-  // Toast system
-  const addToast = (toast) => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { ...toast, id }]);
-    setTimeout(() => removeToast(id), toast.duration || 5000);
-  };
-
-  const removeToast = (id) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-  // Auth listener
+  // ✅ Charger les interventions
   useEffect(() => {
-    const unsubscribe = authService.onAuthStateChange(async (authUser) => {
-      if (authUser) {
-        try {
-          const userDoc = await authService.getUserData(authUser.uid);
-          if (userDoc) {
-            setUser({ ...userDoc, uid: authUser.uid });
-          } else {
-            setUser(null);
-            await authService.logout();
-          }
-        } catch (error) {
-          console.error('Erreur récupération utilisateur:', error);
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-      setIsLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Interventions listener
-  useEffect(() => {
-    if (!user) return;
-    let q;
-    if (user.role === 'admin') {
-      q = query(collection(db, 'interventions'), orderBy('createdAt', 'desc'));
-    } else if (user.role === 'technician') {
-      q = query(collection(db, 'interventions'), where('assignedTo', '==', user.uid), orderBy('createdAt', 'desc'));
-    } else {
+    if (!user) {
+      setInterventions([]);
+      setBlockedRooms([]);
+      setInterventionsLoading(false);
       return;
     }
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setInterventions(data);
-    }, (error) => {
-      console.error('Erreur listener interventions:', error);
-      addToast({ type: 'error', message: 'Erreur de synchronisation' });
-    });
-    return () => unsubscribe();
+
+    // Écouter les interventions
+    let interventionsQuery = query(
+      collection(db, 'interventions'),
+      orderBy('createdAt', 'desc')
+    );
+
+    // Filtrer par rôle
+    if (user.role === 'technician') {
+      interventionsQuery = query(
+        collection(db, 'interventions'),
+        where('assignedTo', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+    }
+
+    const unsubInterventions = onSnapshot(
+      interventionsQuery,
+      (snapshot) => {
+        const interventionsData = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          interventionsData.push({
+            id: doc.id,
+            ...data,
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+            updatedAt: data.updatedAt?.toDate?.() || null
+          });
+        });
+        setInterventions(interventionsData);
+        setInterventionsLoading(false);
+      },
+      (error) => {
+        console.error('❌ Erreur chargement interventions:', error);
+        setInterventionsLoading(false);
+      }
+    );
+
+    // Écouter les chambres bloquées
+    const blockedRoomsQuery = query(
+      collection(db, 'blockedRooms'),
+      where('blocked', '==', true)
+    );
+
+    const unsubBlockedRooms = onSnapshot(
+      blockedRoomsQuery,
+      (snapshot) => {
+        const blockedRoomsData = [];
+        snapshot.forEach((doc) => {
+          blockedRoomsData.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        setBlockedRooms(blockedRoomsData);
+      },
+      (error) => {
+        console.error('❌ Erreur chargement chambres bloquées:', error);
+      }
+    );
+
+    return () => {
+      unsubInterventions();
+      unsubBlockedRooms();
+    };
   }, [user]);
 
-  // Logements listener
+  // ✅ Analytics
   useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, 'logements'), orderBy('name'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setLogements(data);
-    });
-    return () => unsubscribe();
+    if (user) {
+      setAnalyticsUser(user.uid, {
+        role: user.role,
+        department: user.department || 'unknown'
+      });
+      analyticsEvents.userLogin(user.role);
+    }
   }, [user]);
 
-  // Users listener
   useEffect(() => {
-    if (!user || user.role !== 'admin') return;
-    const q = query(collection(db, 'users'), orderBy('name'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setUsers(data);
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  // Handlers - Interventions
-  const handleCreateIntervention = async (interventionData, photos) => {
-    try {
-      let photoUrls = [];
-      if (photos && photos.length > 0) {
-        const tempId = `temp_${Date.now()}`;
-        const uploadResults = await storageService.uploadMultiple(photos, `interventions/${tempId}`);
-        if (uploadResults.success) {
-          photoUrls = uploadResults.urls;
-        }
-      }
-      const intervention = {
-        ...interventionData,
-        status: 'todo',
-        photos: photoUrls,
-        messages: [],
-        suppliesNeeded: [],
-        history: [{
-          id: `history_${Date.now()}`,
-          status: 'todo',
-          date: new Date(),
-          by: user.uid,
-          byName: user.name || user.email,
-          comment: photoUrls.length > 0 ? `Intervention créée avec ${photoUrls.length} photo(s)` : 'Intervention créée',
-          fields: []
-        }],
-        createdAt: serverTimestamp(),
-        createdBy: user.uid,
-        createdByName: user.name || user.email
-      };
-      const docRef = await addDoc(collection(db, 'interventions'), intervention);
-      setIsCreateInterventionModalOpen(false);
-      addToast({ type: 'success', title: 'Intervention créée', message: photoUrls.length > 0 ? `Intervention créée avec ${photoUrls.length} photo(s)` : 'Nouvelle intervention ajoutée' });
-      return { success: true, id: docRef.id };
-    } catch (error) {
-      console.error('Erreur création intervention:', error);
-      addToast({ type: 'error', message: 'Erreur lors de la création' });
-      return { success: false, error: error.message };
+    if (currentView) {
+      analyticsEvents.pageView(currentView);
     }
-  };
+  }, [currentView]);
 
-  const handleSendMessage = (intervention) => async (messageText, photos = []) => {
-    if (!messageText.trim() && photos.length === 0) return { success: false };
-    try {
-      const interventionRef = doc(db, 'interventions', intervention.id);
-      const interventionSnap = await getDoc(interventionRef);
-      if (!interventionSnap.exists()) throw new Error('Intervention non trouvée');
-      const currentData = interventionSnap.data();
-      const currentMessages = currentData.messages || [];
-      let photoUrls = [];
-      if (photos && photos.length > 0) {
-        const uploadResults = await storageService.uploadMultiple(photos, `interventions/${intervention.id}/messages`);
-        if (uploadResults.success) photoUrls = uploadResults.urls;
-      }
-      const newMessageObj = {
-        id: `msg_${Date.now()}`,
-        text: messageText.trim(),
-        type: photoUrls.length > 0 ? 'photo' : 'text',
-        photos: photoUrls,
-        senderId: user.uid,
-        senderName: user.name || user.email,
-        timestamp: new Date(),
-        read: false
-      };
-      await updateDoc(interventionRef, {
-        messages: [...currentMessages, newMessageObj],
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid
-      });
-      addToast({ type: 'success', title: 'Message envoyé', message: photoUrls.length > 0 ? `Message envoyé avec ${photoUrls.length} photo(s)` : 'Message envoyé' });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur envoi message:', error);
-      addToast({ type: 'error', message: 'Erreur lors de l\'envoi' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleUpdateIntervention = (intervention) => async (updates, photos = []) => {
-    try {
-      const interventionRef = doc(db, 'interventions', intervention.id);
-      const interventionSnap = await getDoc(interventionRef);
-      if (!interventionSnap.exists()) throw new Error('Intervention non trouvée');
-      const currentData = interventionSnap.data();
-      const currentHistory = currentData.history || [];
-      let newPhotoUrls = [];
-      if (photos && photos.length > 0) {
-        const uploadResults = await storageService.uploadMultiple(photos, `interventions/${intervention.id}`);
-        if (uploadResults.success) newPhotoUrls = uploadResults.urls;
-      }
-      let historyComment = '';
-      let newStatus = updates.status;
-      if (updates.status) {
-        const statusLabels = { todo: 'À faire', inprogress: 'En cours', ordering: 'En commande', completed: 'Terminée', cancelled: 'Annulée' };
-        historyComment = `Statut changé à "${statusLabels[updates.status]}"`;
-      } else if (updates.assignedTo) {
-        historyComment = `Réassignée à ${updates.assignedToName || 'un technicien'}`;
-      } else if (updates.techComment) {
-        historyComment = 'Commentaire technicien mis à jour';
-      } else if (newPhotoUrls.length > 0) {
-        historyComment = `${newPhotoUrls.length} photo(s) ajoutée(s)`;
-      } else {
-        historyComment = 'Intervention mise à jour';
-      }
-      const newHistoryEntry = {
-        id: `history_${Date.now()}`,
-        status: newStatus || currentData.status,
-        date: new Date(),
-        by: user.uid,
-        byName: user.name || user.email,
-        comment: historyComment,
-        fields: Object.keys(updates)
-      };
-      const updateData = {
-        ...updates,
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid,
-        updatedByName: user.name || user.email,
-        history: [...currentHistory, newHistoryEntry]
-      };
-      if (newPhotoUrls.length > 0) {
-        const currentPhotos = currentData.photos || [];
-        updateData.photos = [...currentPhotos, ...newPhotoUrls];
-      }
-      await updateDoc(interventionRef, updateData);
-      addToast({ type: 'success', message: historyComment });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur mise à jour intervention:', error);
-      addToast({ type: 'error', message: 'Erreur lors de la mise à jour' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleAddSupply = (intervention) => async (supply) => {
-    try {
-      const interventionRef = doc(db, 'interventions', intervention.id);
-      const interventionSnap = await getDoc(interventionRef);
-      if (!interventionSnap.exists()) throw new Error('Intervention non trouvée');
-      const currentData = interventionSnap.data();
-      const currentSupplies = currentData.suppliesNeeded || [];
-      const currentHistory = currentData.history || [];
-      const newSupply = { ...supply, ordered: false, addedAt: new Date(), addedBy: user.uid, addedByName: user.name || user.email };
-      const newHistoryEntry = {
-        id: `history_${Date.now()}`,
-        status: currentData.status,
-        date: new Date(),
-        by: user.uid,
-        byName: user.name || user.email,
-        comment: `Fourniture ajoutée: ${supply.name}`,
-        fields: ['suppliesNeeded']
-      };
-      await updateDoc(interventionRef, {
-        suppliesNeeded: [...currentSupplies, newSupply],
-        history: [...currentHistory, newHistoryEntry],
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid
-      });
-      addToast({ type: 'success', message: 'Fourniture ajoutée' });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur ajout fourniture:', error);
-      addToast({ type: 'error', message: 'Erreur lors de l\'ajout' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleRemoveSupply = (intervention) => async (index) => {
-    try {
-      const interventionRef = doc(db, 'interventions', intervention.id);
-      const interventionSnap = await getDoc(interventionRef);
-      if (!interventionSnap.exists()) throw new Error('Intervention non trouvée');
-      const currentData = interventionSnap.data();
-      const currentSupplies = currentData.suppliesNeeded || [];
-      const currentHistory = currentData.history || [];
-      const removedSupply = currentSupplies[index];
-      const updatedSupplies = currentSupplies.filter((_, i) => i !== index);
-      const newHistoryEntry = {
-        id: `history_${Date.now()}`,
-        status: currentData.status,
-        date: new Date(),
-        by: user.uid,
-        byName: user.name || user.email,
-        comment: `Fourniture retirée: ${removedSupply.name}`,
-        fields: ['suppliesNeeded']
-      };
-      await updateDoc(interventionRef, {
-        suppliesNeeded: updatedSupplies,
-        history: [...currentHistory, newHistoryEntry],
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid
-      });
-      addToast({ type: 'success', message: 'Fourniture retirée' });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur retrait fourniture:', error);
-      addToast({ type: 'error', message: 'Erreur lors du retrait' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleToggleSupplyStatus = (intervention) => async (index) => {
-    try {
-      const interventionRef = doc(db, 'interventions', intervention.id);
-      const interventionSnap = await getDoc(interventionRef);
-      if (!interventionSnap.exists()) throw new Error('Intervention non trouvée');
-      const currentData = interventionSnap.data();
-      const currentSupplies = currentData.suppliesNeeded || [];
-      const currentHistory = currentData.history || [];
-      const updatedSupplies = [...currentSupplies];
-      updatedSupplies[index] = { ...updatedSupplies[index], ordered: !updatedSupplies[index].ordered };
-      const newHistoryEntry = {
-        id: `history_${Date.now()}`,
-        status: currentData.status,
-        date: new Date(),
-        by: user.uid,
-        byName: user.name || user.email,
-        comment: `Fourniture ${updatedSupplies[index].ordered ? 'commandée' : 'non commandée'}: ${updatedSupplies[index].name}`,
-        fields: ['suppliesNeeded']
-      };
-      await updateDoc(interventionRef, {
-        suppliesNeeded: updatedSupplies,
-        history: [...currentHistory, newHistoryEntry],
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid
-      });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur toggle fourniture:', error);
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleDeleteIntervention = async (interventionId) => {
-    try {
-      await deleteDoc(doc(db, 'interventions', interventionId));
-      addToast({ type: 'success', message: 'Intervention supprimée' });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur suppression intervention:', error);
-      addToast({ type: 'error', message: 'Erreur lors de la suppression' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  // Handlers - Logements
-  const handleCreateLogement = async (logementData) => {
-    try {
-      const logement = { ...logementData, createdAt: serverTimestamp(), createdBy: user.uid, createdByName: user.name || user.email };
-      await addDoc(collection(db, 'logements'), logement);
-      addToast({ type: 'success', message: 'Logement créé' });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur création logement:', error);
-      addToast({ type: 'error', message: 'Erreur lors de la création' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleUpdateLogement = async (logementId, updates) => {
-    try {
-      await updateDoc(doc(db, 'logements', logementId), { ...updates, updatedAt: serverTimestamp(), updatedBy: user.uid, updatedByName: user.name || user.email });
-      addToast({ type: 'success', message: 'Logement mis à jour' });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur mise à jour logement:', error);
-      addToast({ type: 'error', message: 'Erreur lors de la mise à jour' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleDeleteLogement = async (logementId) => {
-    try {
-      await deleteDoc(doc(db, 'logements', logementId));
-      addToast({ type: 'success', message: 'Logement supprimé' });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur suppression logement:', error);
-      addToast({ type: 'error', message: 'Erreur lors de la suppression' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  // Handlers - Users
-  const handleUserModalSubmit = async (data) => {
-    try {
-      let result;
-      if (userModalMode === 'create') {
-        result = await userService.create(data);
-        if (result.success) {
-          addToast({ type: 'success', title: 'Utilisateur créé', message: `Le compte de ${data.name} a été créé` });
-          setIsUserModalOpen(false);
-          setSelectedUser(null);
-          return { success: true };
-        }
-      } else if (userModalMode === 'edit') {
-        await updateDoc(doc(db, 'users', selectedUser.id), { ...data, updatedAt: serverTimestamp(), updatedBy: user.uid, updatedByName: user.name || user.email });
-        addToast({ type: 'success', message: `Profil de ${data.name} mis à jour` });
-        setIsUserModalOpen(false);
-        setSelectedUser(null);
-        return { success: true };
-      } else if (userModalMode === 'password') {
-        result = await userService.updatePassword(selectedUser.id, data);
-        if (result.success) {
-          addToast({ type: 'success', title: 'Mot de passe modifié', message: `Mot de passe de ${selectedUser.name} changé` });
-          setIsUserModalOpen(false);
-          setSelectedUser(null);
-          return { success: true };
-        }
-      }
-      throw new Error(result?.error || 'Opération échouée');
-    } catch (error) {
-      console.error('Erreur opération utilisateur:', error);
-      addToast({ type: 'error', title: 'Erreur', message: error.message || 'Erreur' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleDeleteUser = async (userId) => {
-    try {
-      const result = await userService.delete(userId);
-      if (result.success) {
-        addToast({ type: 'success', message: 'Utilisateur supprimé' });
-        return { success: true };
-      }
-      throw new Error(result.error || 'Erreur de suppression');
-    } catch (error) {
-      console.error('Erreur suppression utilisateur:', error);
-      addToast({ type: 'error', message: error.message || 'Erreur' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleToggleUserStatus = async (userId, currentStatus) => {
-    try {
-      await updateDoc(doc(db, 'users', userId), { active: !currentStatus, updatedAt: serverTimestamp(), updatedBy: user.uid });
-      addToast({ type: 'success', message: `Utilisateur ${!currentStatus ? 'activé' : 'désactivé'}` });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur toggle utilisateur:', error);
-      addToast({ type: 'error', message: 'Erreur' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  // Auth handlers
-  const handleLogin = async (email, password) => {
-    try {
-      const result = await authService.login(email, password);
-      if (!result.success) {
-        addToast({ type: 'error', message: result.error || 'Erreur de connexion' });
-        return result;
-      }
-      addToast({ type: 'success', title: 'Connexion réussie', message: `Bienvenue ${result.user.name}!` });
-      return result;
-    } catch (error) {
-      console.error('Erreur login:', error);
-      addToast({ type: 'error', message: 'Erreur de connexion' });
-      return { success: false, error: error.message };
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await authService.logout();
-      setUser(null);
-      setCurrentView('dashboard');
-      addToast({ type: 'success', message: 'Déconnexion réussie' });
-    } catch (error) {
-      console.error('Erreur logout:', error);
-      addToast({ type: 'error', message: 'Erreur' });
-    }
-  };
-
-  // Render
-  if (isLoading) {
+  // ✅ Vérifications conditionnelles
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Chargement...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Chargement...</p>
         </div>
       </div>
     );
   }
 
   if (!user) {
-    return (
-      <>
-        <LoginForm onLogin={handleLogin} />
-        <div className="fixed top-4 right-4 z-50 space-y-2">
-          {toasts.map(toast => (
-            <Toast key={toast.id} {...toast} onClose={() => removeToast(toast.id)} />
-          ))}
-        </div>
-      </>
-    );
+    return <AuthScreen />;
   }
 
+  const isLoading = authLoading || dataLoading || interventionsLoading;
+
+  // ✅ Handlers interventions
+  const handleInterventionClick = (intervention) => {
+    setSelectedIntervention(intervention);
+  };
+
+  const handleCreateIntervention = async (interventionData, photos) => {
+    try {
+      // Upload des photos
+      const photoUrls = [];
+      if (photos && photos.length > 0) {
+        for (const photo of photos) {
+          const storageRef = ref(storage, `interventions/${Date.now()}_${photo.name}`);
+          const snapshot = await uploadBytes(storageRef, photo);
+          const downloadURL = await getDownloadURL(snapshot.ref);
+          photoUrls.push(downloadURL);
+        }
+      }
+
+      // Créer l'intervention
+      const interventionToAdd = {
+        ...interventionData,
+        photos: photoUrls,
+        createdAt: serverTimestamp(),
+        createdBy: user.uid,
+        createdByName: user.name || user.email,
+        status: 'todo',
+        messages: [],
+        history: [{
+          status: 'todo',
+          date: new Date().toISOString(),
+          by: user.uid,
+          byName: user.name || user.email,
+          comment: 'Intervention créée'
+        }]
+      };
+
+      await addDoc(collection(db, 'interventions'), interventionToAdd);
+
+      addToast({
+        type: 'success',
+        title: 'Intervention créée',
+        message: 'L\'intervention a été créée avec succès'
+      });
+
+      setIsCreateInterventionModalOpen(false);
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Erreur création intervention:', error);
+      addToast({
+        type: 'error',
+        title: 'Erreur',
+        message: 'Erreur lors de la création de l\'intervention'
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
+    try {
+      // Upload des nouvelles photos
+      const photoUrls = [];
+      if (photos && photos.length > 0) {
+        for (const photo of photos) {
+          const storageRef = ref(storage, `interventions/${interventionId}/${Date.now()}_${photo.name}`);
+          const snapshot = await uploadBytes(storageRef, photo);
+          const downloadURL = await getDownloadURL(snapshot.ref);
+          photoUrls.push(downloadURL);
+        }
+      }
+
+      const updateData = {
+        ...updates,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+        updatedByName: user.name || user.email
+      };
+
+      // Ajouter les nouvelles photos
+      if (photoUrls.length > 0) {
+        const intervention = interventions.find(i => i.id === interventionId);
+        updateData.photos = [...(intervention?.photos || []), ...photoUrls];
+      }
+
+      await updateDoc(doc(db, 'interventions', interventionId), updateData);
+
+      addToast({
+        type: 'success',
+        title: 'Intervention mise à jour',
+        message: 'L\'intervention a été mise à jour avec succès'
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Erreur mise à jour intervention:', error);
+      addToast({
+        type: 'error',
+        title: 'Erreur',
+        message: 'Erreur lors de la mise à jour de l\'intervention'
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  const handleToggleRoomBlock = async (room, reason) => {
+    try {
+      // Vérifier si la chambre est déjà bloquée
+      const existingBlock = blockedRooms.find(br => br.room === room && br.blocked);
+
+      if (existingBlock) {
+        // Débloquer
+        await updateDoc(doc(db, 'blockedRooms', existingBlock.id), {
+          blocked: false,
+          unblockedAt: serverTimestamp(),
+          unblockedBy: user.uid,
+          unblockedByName: user.name || user.email
+        });
+
+        addToast({
+          type: 'success',
+          title: 'Chambre débloquée',
+          message: `La chambre ${room} a été débloquée`
+        });
+      } else {
+        // Bloquer
+        await addDoc(collection(db, 'blockedRooms'), {
+          room,
+          reason,
+          blocked: true,
+          blockedAt: serverTimestamp(),
+          blockedBy: user.uid,
+          blockedByName: user.name || user.email
+        });
+
+        addToast({
+          type: 'success',
+          title: 'Chambre bloquée',
+          message: `La chambre ${room} a été bloquée`
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Erreur blocage chambre:', error);
+      addToast({
+        type: 'error',
+        title: 'Erreur',
+        message: 'Erreur lors du blocage de la chambre'
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  // ✅ Handlers utilisateurs
+  const handleCreateUser = () => {
+    setIsCreateUserModalOpen(true);
+  };
+
+  const handleEditUser = (user) => {
+    setSelectedUser(user);
+    setIsUserManagementModalOpen(true);
+  };
+
+  const handleDeleteUser = async (user) => {
+    if (confirm(`Êtes-vous sûr de vouloir désactiver ${user.name} ?`)) {
+      return await deleteUser(user.id);
+    }
+  };
+
+  const handleUpdateUserPassword = (user) => {
+    setSelectedUser(user);
+    setIsUpdatePasswordModalOpen(true);
+  };
+
+  // ✅ Stats pour Analytics
+  const analyticsStats = {
+    totalInterventions: interventions.length,
+    completedThisMonth: interventions.filter(i => 
+      i.status === 'completed' && 
+      i.createdAt?.getMonth() === new Date().getMonth()
+    ).length,
+    averageResolutionTime: 2.5,
+    technicianPerformance: [],
+    roomIssueFrequency: []
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar currentView={currentView} onViewChange={setCurrentView} isOpen={isSidebarOpen} onToggle={() => setIsSidebarOpen(!isSidebarOpen)} userRole={user.role} />
-      <div className="flex-1 flex flex-col">
-        <Header user={user} onLogout={handleLogout} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
-        <main className="flex-1 overflow-y-auto p-6">
-          {currentView === 'dashboard' && <DashboardView interventions={interventions} logements={logements} users={users} user={user} />}
-          {currentView === 'interventions' && <InterventionsView interventions={interventions} logements={logements} users={users} user={user} onCreateIntervention={() => setIsCreateInterventionModalOpen(true)} onSelectIntervention={setSelectedIntervention} onDeleteIntervention={handleDeleteIntervention} />}
-          {currentView === 'logements' && <LogementsView logements={logements} user={user} onCreateLogement={handleCreateLogement} onUpdateLogement={handleUpdateLogement} onDeleteLogement={handleDeleteLogement} />}
-          {currentView === 'users' && user.role === 'admin' && <UsersView users={users} currentUser={user} onCreateUser={() => { setUserModalMode('create'); setSelectedUser(null); setIsUserModalOpen(true); }} onEditUser={(u) => { setUserModalMode('edit'); setSelectedUser(u); setIsUserModalOpen(true); }} onChangePassword={(u) => { setUserModalMode('password'); setSelectedUser(u); setIsUserModalOpen(true); }} onDeleteUser={handleDeleteUser} onToggleUserStatus={handleToggleUserStatus} />}
-          {currentView === 'settings' && <SettingsView user={user} />}
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
+      {/* Overlay mobile */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-50
+        transform transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        <Sidebar
+          currentView={currentView}
+          onViewChange={(view) => {
+            setCurrentView(view);
+            setSidebarOpen(false);
+          }}
+          user={user}
+          settings={settings}
+          onLogout={logout}
+          onClose={() => setSidebarOpen(false)}
+        />
+      </div>
+
+      {/* Contenu principal */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header
+          currentView={currentView}
+          user={user}
+          onMenuClick={() => setSidebarOpen(true)}
+          onSettingsClick={() => setIsSettingsModalOpen(true)}
+          onNotificationsClick={() => setIsNotificationPanelOpen(true)}
+          onLogout={logout}
+        />
+
+        <main className="flex-1 overflow-y-auto">
+          <div className="px-4 sm:px-6 lg:px-8 py-6">
+            {/* Dashboard */}
+            {currentView === 'dashboard' && (
+              <DashboardView
+                interventions={interventions}
+                blockedRooms={blockedRooms}
+                onInterventionClick={handleInterventionClick}
+              />
+            )}
+
+            {/* Interventions */}
+            {currentView === 'interventions' && (
+              <InterventionsView
+                interventions={interventions}
+                onInterventionClick={handleInterventionClick}
+                onCreateClick={() => setIsCreateInterventionModalOpen(true)}
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+                filterStatus={filterStatus}
+                onFilterChange={setFilterStatus}
+              />
+            )}
+
+            {/* Analytics Basique */}
+            {currentView === 'analytics' && (
+              <AnalyticsView
+                stats={analyticsStats}
+                onExportData={(type) => console.log('Export:', type)}
+              />
+            )}
+
+            {/* Analytics Avancés */}
+            {currentView === 'advanced-analytics' && (
+              <AdvancedAnalytics
+                interventions={interventions}
+                users={users}
+              />
+            )}
+
+            {/* Calendrier/Planning */}
+            {currentView === 'calendar' && (
+              <CalendarView
+                interventions={interventions}
+                users={users}
+                onInterventionClick={handleInterventionClick}
+                onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
+                onDragDrop={async (interventionId, newDate) => {
+                  await handleUpdateIntervention(interventionId, { 
+                    scheduledDate: newDate 
+                  });
+                }}
+              />
+            )}
+
+            {/* Chat */}
+            {currentView === 'chat' && (
+              <ChatView
+                user={user}
+                users={users}
+              />
+            )}
+
+            {/* Recherche Avancée */}
+            {currentView === 'search' && (
+              <AdvancedSearchView
+                interventions={interventions}
+                users={users}
+                data={data}
+                onInterventionClick={handleInterventionClick}
+              />
+            )}
+
+            {/* Gestion utilisateurs */}
+            {currentView === 'users' && user.role === 'superadmin' && (
+              <UsersManagementView
+                users={users}
+                onAddUser={handleCreateUser}
+                onEditUser={handleEditUser}
+                onDeleteUser={handleDeleteUser}
+                onUpdateUserPassword={handleUpdateUserPassword}
+                currentUser={user}
+              />
+            )}
+
+            {/* Gestion des données */}
+            {currentView === 'data-management' && user.role === 'superadmin' && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+                      Gestion des données de référence
+                    </h1>
+                    <p className="text-gray-600 dark:text-gray-400 mt-1">
+                      Gérez toutes les listes déroulantes et données admin
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsAdminModalOpen(true)}
+                    className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition"
+                  >
+                    Ouvrir le gestionnaire
+                  </button>
+                </div>
+
+                {/* Statistiques rapides */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Localisations</div>
+                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
+                      {data.locations?.length || 0}
+                    </div>
+                    <div className="text-xs text-green-600 dark:text-green-400">
+                      {getActiveItems('locations').length} actives
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Techniciens</div>
+                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
+                      {data.technicians?.length || 0}
+                    </div>
+                    <div className="text-xs text-green-600 dark:text-green-400">
+                      {getActiveItems('technicians').length} actifs
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Fournisseurs</div>
+                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
+                      {data.suppliers?.length || 0}
+                    </div>
+                    <div className="text-xs text-green-600 dark:text-green-400">
+                      {getActiveItems('suppliers').length} actifs
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Équipements</div>
+                    <div className="text-2xl font-bold text-gray-800 dark:text-white">
+                      {data.equipment?.length || 0}
+                    </div>
+                    <div className="text-xs text-green-600 dark:text-green-400">
+                      {getActiveItems('equipment').length} actifs
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </main>
       </div>
-      {isCreateInterventionModalOpen && <CreateInterventionModal onClose={() => setIsCreateInterventionModalOpen(false)} onSubmit={handleCreateIntervention} logements={logements} users={users.filter(u => u.role === 'technician' && u.active)} user={user} />}
-      {selectedIntervention && <InterventionDetailModal intervention={selectedIntervention} onClose={() => setSelectedIntervention(null)} onUpdate={handleUpdateIntervention(selectedIntervention)} onSendMessage={handleSendMessage(selectedIntervention)} onAddSupply={handleAddSupply(selectedIntervention)} onRemoveSupply={handleRemoveSupply(selectedIntervention)} onToggleSupplyStatus={handleToggleSupplyStatus(selectedIntervention)} user={user} users={users} />}
-      {isUserModalOpen && <UnifiedUserModal mode={userModalMode} user={selectedUser} onClose={() => { setIsUserModalOpen(false); setSelectedUser(null); }} onSubmit={handleUserModalSubmit} />}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
+
+      {/* Panel de Notifications */}
+      <NotificationPanel
+        isOpen={isNotificationPanelOpen}
+        onClose={() => setIsNotificationPanelOpen(false)}
+      />
+
+      {/* MODALS */}
+      
+      {isCreateInterventionModalOpen && (
+        <CreateInterventionModal
+          isOpen={isCreateInterventionModalOpen}
+          onClose={() => setIsCreateInterventionModalOpen(false)}
+          onAddIntervention={handleCreateIntervention}
+          dropdowns={data}
+          adminOptions={data}
+          user={user}
+          blockedRooms={blockedRooms}
+          onAddLocation={(locationData) => addItem('locations', locationData)}
+          getActiveItems={getActiveItems}
+        />
+      )}
+        
+      {selectedIntervention && (
+        <InterventionDetailModal
+          intervention={selectedIntervention}
+          onClose={() => setSelectedIntervention(null)}
+          onUpdateIntervention={handleUpdateIntervention}
+          onToggleRoomBlock={handleToggleRoomBlock}
+          user={user}
+        />
+      )}
+
+      {isAdminModalOpen && (
+        <UnifiedAdminModal
+          isOpen={isAdminModalOpen}
+          onClose={() => setIsAdminModalOpen(false)}
+          data={data}
+          loading={dataLoading}
+          onAddItem={addItem}
+          onUpdateItem={updateItem}
+          onDeleteItem={deleteItem}
+          onToggleActive={toggleActive}
+        />
+      )}
+
+      {isSettingsModalOpen && (
+        <SettingsModal
+          isOpen={isSettingsModalOpen}
+          onClose={() => setIsSettingsModalOpen(false)}
+          settings={settings}
+          onUpdateSettings={updateSettings}
+          onResetSettings={resetSettings}
+        />
+      )}
+
+      {isCreateUserModalOpen && (
+        <CreateUserModal
+          isOpen={isCreateUserModalOpen}
+          onClose={() => setIsCreateUserModalOpen(false)}
+          onAddUser={async (userData) => {
+            const result = await addUser(userData);
+            if (result.success) {
+              setIsCreateUserModalOpen(false);
+            }
+            return result;
+          }}
+        />
+      )}
+
+      {isUserManagementModalOpen && selectedUser && (
+        <UserManagementModal
+          isOpen={isUserManagementModalOpen}
+          onClose={() => {
+            setIsUserManagementModalOpen(false);
+            setSelectedUser(null);
+          }}
+          user={selectedUser}
+          onUpdateUser={updateUser}
+          onResetPassword={resetPassword}
+          onDeleteUser={deleteUser}
+          onActivateUser={activateUser}
+          onUpdatePassword={(user) => {
+            setIsUserManagementModalOpen(false);
+            setSelectedUser(user);
+            setIsUpdatePasswordModalOpen(true);
+          }}
+        />
+      )}
+
+      {isUpdatePasswordModalOpen && selectedUser && (
+        <UpdatePasswordModal
+          isOpen={isUpdatePasswordModalOpen}
+          onClose={() => {
+            setIsUpdatePasswordModalOpen(false);
+            setSelectedUser(null);
+          }}
+          user={selectedUser}
+          onUpdatePassword={async (userId, password) => {
+            const result = await updateUserPassword(userId, password);
+            if (result.success) {
+              setIsUpdatePasswordModalOpen(false);
+              setSelectedUser(null);
+            }
+            return result;
+          }}
+        />
+      )}
+
+      {/* Toasts */}
+      <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
         {toasts.map(toast => (
-          <Toast key={toast.id} {...toast} onClose={() => removeToast(toast.id)} />
+          <Toast
+            key={toast.id}
+            toast={toast}
+            onRemove={removeToast}
+          />
         ))}
       </div>
     </div>
   );
-}
+};
+
+// App principale avec NotificationProvider
+const App = () => {
+  return (
+    <ErrorBoundary>
+      <ToastProvider>
+        <AuthProvider>
+          <NotificationProvider>
+            <AppProvider>
+              <AppContent />
+            </AppProvider>
+          </NotificationProvider>
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
+  );
+};
 
 export default App;

@@ -1,4 +1,4 @@
-// src/hooks/useUnifiedData.js
+// src/hooks/useUnifiedData.js - VERSION CORRIGÉE
 import { useState, useEffect } from 'react';
 import { 
   collection, 
@@ -11,7 +11,7 @@ import {
   doc,
   deleteDoc,
   serverTimestamp,
-  getDocs
+  getDocs // ✅ AJOUT DE L'IMPORT MANQUANT
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useToast } from '../contexts/ToastContext';
