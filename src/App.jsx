@@ -1,4 +1,4 @@
-// src/App.jsx - VERSION CORRIGÉE
+// src/App.jsx - VERSION CORRIGÉE ET COMPLÈTE
 
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -6,15 +6,13 @@ import { ToastProvider, useToast } from './contexts/ToastContext';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 
-// Analytics Firebase uniquement
+// Analytics Firebase
 import { setAnalyticsUser, analyticsEvents } from './config/firebase';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
-// ✅ CORRECTION : Déplacer TOUS les hooks en premier, AVANT toute condition
+// ✅ HOOKS - Tous en premier
 import { useUnifiedData } from './hooks/useUnifiedData';
 import { useSettings } from './hooks/useSettings';
-import { useInterventions } from './hooks/useInterventions';
-import { useUserManagement } from './hooks/useFirestore';
 
 // Layout
 import Header from './components/layout/Header';
@@ -36,11 +34,20 @@ import UnifiedAdminModal from './components/Admin/UnifiedAdminModal';
 import CreateInterventionModal from './components/Interventions/CreateInterventionModal';
 import InterventionDetailModal from './components/Interventions/InterventionDetailModal';
 import SettingsModal from './components/Settings/SettingsModal';
+
+// ✅ CORRECTION : Import des bons composants utilisateurs
 import UnifiedUserModal from './components/Users/UnifiedUserModal';
+
+// ✅ SERVICES
+import { 
+  interventionService, 
+  userService,
+  storageService 
+} from './services/index';
 
 const AppContent = () => {
   const { user, loading: authLoading, logout } = useAuth();
-  const { toasts, removeToast } = useToast();
+  const { toasts, removeToast, addToast } = useToast();
   const { 
     currentView, 
     setCurrentView,
@@ -50,8 +57,7 @@ const AppContent = () => {
     setIsSettingsModalOpen
   } = useApp();
 
-  // ✅ CORRECTION CRITIQUE : Appeler TOUS les hooks INCONDITIONNELLEMENT en premier
-  // Hooks de données - TOUJOURS appelés, même si user est null
+  // ========== HOOKS DE DONNÉES ==========
   const {
     data,
     loading: dataLoading,
@@ -64,40 +70,111 @@ const AppContent = () => {
   } = useUnifiedData(user);
 
   const { settings, updateSettings, resetSettings } = useSettings(user);
+
+  // ========== ÉTAT LOCAL ==========
+  const [interventions, setInterventions] = useState([]);
+  const [blockedRooms, setBlockedRooms] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   
-  const { 
-    interventions, 
-    blockedRooms, 
-    loading: interventionsLoading,
-    addIntervention,
-    updateIntervention,
-    toggleRoomBlock
-  } = useInterventions(user);
-
-  const {
-    users,
-    loading: usersLoading,
-    addUser,
-    updateUser,
-    deleteUser,
-    activateUser,
-    resetPassword,
-    updateUserPassword
-  } = useUserManagement();
-
-  // État local - APRÈS tous les hooks
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
-  const [isUserManagementModalOpen, setIsUserManagementModalOpen] = useState(false);
-  const [isUpdatePasswordModalOpen, setIsUpdatePasswordModalOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedIntervention, setSelectedIntervention] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  
+  // ✅ CORRECTION : États pour modals unifiées
+  const [userModalMode, setUserModalMode] = useState('create'); // 'create', 'edit', 'password'
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
 
-  // ✅ Analytics
+  // ========== CHARGEMENT DES DONNÉES ==========
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    // Charger interventions
+    const loadInterventions = async () => {
+      try {
+        const q = query(
+          collection(db, 'interventions'),
+          orderBy('createdAt', 'desc')
+        );
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date()
+          }));
+          setInterventions(data);
+        });
+
+        return unsubscribe;
+      } catch (error) {
+        console.error('Erreur chargement interventions:', error);
+        addToast({ type: 'error', message: 'Erreur chargement des interventions' });
+      }
+    };
+
+    // Charger utilisateurs
+    const loadUsers = async () => {
+      try {
+        const q = query(collection(db, 'users'));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setUsers(data);
+        });
+
+        return unsubscribe;
+      } catch (error) {
+        console.error('Erreur chargement utilisateurs:', error);
+      }
+    };
+
+    // Charger chambres bloquées
+    const loadBlockedRooms = async () => {
+      try {
+        const q = query(
+          collection(db, 'blockedRooms'),
+          where('blocked', '==', true)
+        );
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setBlockedRooms(data);
+        });
+
+        return unsubscribe;
+      } catch (error) {
+        console.error('Erreur chargement chambres bloquées:', error);
+      }
+    };
+
+    const unsubscribeInterventions = loadInterventions();
+    const unsubscribeUsers = loadUsers();
+    const unsubscribeRooms = loadBlockedRooms();
+
+    setLoading(false);
+
+    return () => {
+      unsubscribeInterventions?.then(unsub => unsub?.());
+      unsubscribeUsers?.then(unsub => unsub?.());
+      unsubscribeRooms?.then(unsub => unsub?.());
+    };
+  }, [user]);
+
+  // ========== ANALYTICS ==========
   useEffect(() => {
     if (user) {
       setAnalyticsUser(user.uid, {
@@ -114,8 +191,235 @@ const AppContent = () => {
     }
   }, [currentView]);
 
-  // ✅ MAINTENANT on peut faire les vérifications conditionnelles
-  if (authLoading) {
+  // ========== HANDLERS INTERVENTIONS ==========
+  const handleInterventionClick = (intervention) => {
+    setSelectedIntervention(intervention);
+  };
+
+  const handleCreateIntervention = async (interventionData, photos) => {
+    try {
+      // Upload photos si présentes
+      let photoUrls = [];
+      if (photos && photos.length > 0) {
+        const uploadResults = await storageService.uploadMultiple(
+          photos,
+          `interventions/${Date.now()}`
+        );
+        if (uploadResults.success) {
+          photoUrls = uploadResults.urls;
+        }
+      }
+
+      // Créer l'intervention
+      const result = await interventionService.create(
+        {
+          ...interventionData,
+          photos: photoUrls
+        },
+        user
+      );
+
+      if (result.success) {
+        setIsCreateInterventionModalOpen(false);
+        addToast({ 
+          type: 'success', 
+          title: 'Intervention créée',
+          message: 'Nouvelle intervention ajoutée avec succès' 
+        });
+      }
+
+      return result;
+    } catch (error) {
+      addToast({ 
+        type: 'error', 
+        message: 'Erreur lors de la création de l\'intervention' 
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
+    try {
+      // Upload nouvelles photos
+      let newPhotoUrls = [];
+      if (photos && photos.length > 0) {
+        const uploadResults = await storageService.uploadMultiple(
+          photos,
+          `interventions/${interventionId}`
+        );
+        if (uploadResults.success) {
+          newPhotoUrls = uploadResults.urls;
+        }
+      }
+
+      // Mettre à jour
+      const result = await interventionService.update(
+        interventionId,
+        {
+          ...updates,
+          photos: newPhotoUrls.length > 0 
+            ? [...(updates.photos || []), ...newPhotoUrls]
+            : updates.photos
+        },
+        user
+      );
+
+      if (result.success) {
+        addToast({ 
+          type: 'success', 
+          message: 'Intervention mise à jour' 
+        });
+      }
+
+      return result;
+    } catch (error) {
+      addToast({ 
+        type: 'error', 
+        message: 'Erreur lors de la mise à jour' 
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  const handleToggleRoomBlock = async (room, reason) => {
+    try {
+      const roomDoc = blockedRooms.find(r => r.room === room);
+      
+      if (roomDoc) {
+        // Débloquer
+        await updateDoc(doc(db, 'blockedRooms', roomDoc.id), {
+          blocked: false,
+          unblockedAt: serverTimestamp(),
+          unblockedBy: user.uid
+        });
+      } else {
+        // Bloquer
+        await addDoc(collection(db, 'blockedRooms'), {
+          room,
+          reason,
+          blocked: true,
+          blockedAt: serverTimestamp(),
+          blockedBy: user.uid,
+          blockedByName: user.name || user.email
+        });
+      }
+
+      addToast({ 
+        type: 'success', 
+        message: roomDoc ? 'Chambre débloquée' : 'Chambre bloquée' 
+      });
+
+      return { success: true };
+    } catch (error) {
+      addToast({ 
+        type: 'error', 
+        message: 'Erreur lors du blocage/déblocage' 
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  // ========== HANDLERS UTILISATEURS ==========
+  const handleOpenCreateUser = () => {
+    setUserModalMode('create');
+    setSelectedUser(null);
+    setIsUserModalOpen(true);
+  };
+
+  const handleOpenEditUser = (user) => {
+    setUserModalMode('edit');
+    setSelectedUser(user);
+    setIsUserModalOpen(true);
+  };
+
+  const handleOpenPasswordUser = (user) => {
+    setUserModalMode('password');
+    setSelectedUser(user);
+    setIsUserModalOpen(true);
+  };
+
+  const handleUserModalSubmit = async (data) => {
+    try {
+      let result;
+
+      if (userModalMode === 'create') {
+        result = await userService.create(data);
+        if (result.success) {
+          addToast({ 
+            type: 'success', 
+            title: 'Utilisateur créé',
+            message: 'Le compte a été créé avec succès' 
+          });
+        }
+      } else if (userModalMode === 'edit') {
+        result = await userService.update(selectedUser.id, data, user);
+        if (result.success) {
+          addToast({ 
+            type: 'success', 
+            message: 'Utilisateur mis à jour' 
+          });
+        }
+      } else if (userModalMode === 'password') {
+        result = await userService.updatePassword(selectedUser.id, data);
+        if (result.success) {
+          addToast({ 
+            type: 'success', 
+            title: 'Mot de passe modifié',
+            message: 'Le mot de passe a été changé avec succès' 
+          });
+        }
+      }
+
+      if (result.success) {
+        setIsUserModalOpen(false);
+        setSelectedUser(null);
+      }
+
+      return result;
+    } catch (error) {
+      addToast({ 
+        type: 'error', 
+        message: 'Erreur lors de l\'opération' 
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  const handleDeleteUser = async (userToDelete) => {
+    if (userToDelete.id === user.uid) {
+      addToast({ 
+        type: 'error', 
+        message: 'Vous ne pouvez pas vous désactiver vous-même' 
+      });
+      return { success: false };
+    }
+
+    if (!confirm(`Êtes-vous sûr de vouloir désactiver ${userToDelete.name} ?`)) {
+      return { success: false };
+    }
+
+    try {
+      const result = await userService.deactivate(userToDelete.id, user);
+      
+      if (result.success) {
+        addToast({ 
+          type: 'success', 
+          message: 'Utilisateur désactivé' 
+        });
+      }
+
+      return result;
+    } catch (error) {
+      addToast({ 
+        type: 'error', 
+        message: 'Erreur lors de la désactivation' 
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  // ========== CHARGEMENT ==========
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
@@ -130,51 +434,7 @@ const AppContent = () => {
     return <AuthScreen />;
   }
 
-  const isLoading = authLoading || dataLoading || interventionsLoading;
-
-  // Handlers interventions
-  const handleInterventionClick = (intervention) => {
-    setSelectedIntervention(intervention);
-  };
-
-  const handleCreateIntervention = async (interventionData, photos) => {
-    const result = await addIntervention(interventionData, photos);
-    if (result.success) {
-      setIsCreateInterventionModalOpen(false);
-    }
-    return result;
-  };
-
-  const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
-    return await updateIntervention(interventionId, updates, photos);
-  };
-
-  const handleToggleRoomBlock = async (room, reason) => {
-    return await toggleRoomBlock(room, reason);
-  };
-
-  // Handlers utilisateurs
-  const handleCreateUser = () => {
-    setIsCreateUserModalOpen(true);
-  };
-
-  const handleEditUser = (user) => {
-    setSelectedUser(user);
-    setIsUserManagementModalOpen(true);
-  };
-
-  const handleDeleteUser = async (user) => {
-    if (confirm(`Êtes-vous sûr de vouloir désactiver ${user.name} ?`)) {
-      return await deleteUser(user.id);
-    }
-  };
-
-  const handleUpdateUserPassword = (user) => {
-    setSelectedUser(user);
-    setIsUpdatePasswordModalOpen(true);
-  };
-
-  // Stats pour Analytics
+  // ========== STATS POUR ANALYTICS ==========
   const analyticsStats = {
     totalInterventions: interventions.length,
     completedThisMonth: interventions.filter(i => 
@@ -186,6 +446,7 @@ const AppContent = () => {
     roomIssueFrequency: []
   };
 
+  // ========== RENDU ==========
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
       {/* Overlay mobile */}
@@ -250,7 +511,7 @@ const AppContent = () => {
               />
             )}
 
-            {/* Analytics Basique */}
+            {/* Analytics */}
             {currentView === 'analytics' && (
               <AnalyticsView
                 stats={analyticsStats}
@@ -270,10 +531,10 @@ const AppContent = () => {
             {currentView === 'users' && user.role === 'superadmin' && (
               <UsersManagementView
                 users={users}
-                onAddUser={handleCreateUser}
-                onEditUser={handleEditUser}
+                onAddUser={handleOpenCreateUser}
+                onEditUser={handleOpenEditUser}
                 onDeleteUser={handleDeleteUser}
-                onUpdateUserPassword={handleUpdateUserPassword}
+                onUpdateUserPassword={handleOpenPasswordUser}
                 currentUser={user}
               />
             )}
@@ -298,15 +559,12 @@ const AppContent = () => {
                   </button>
                 </div>
 
-                {/* Statistiques rapides */}
+                {/* Stats rapides */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Localisations</div>
                     <div className="text-2xl font-bold text-gray-800 dark:text-white">
                       {data.locations?.length || 0}
-                    </div>
-                    <div className="text-xs text-green-600 dark:text-green-400">
-                      {getActiveItems('locations').length} actives
                     </div>
                   </div>
 
@@ -315,9 +573,6 @@ const AppContent = () => {
                     <div className="text-2xl font-bold text-gray-800 dark:text-white">
                       {data.technicians?.length || 0}
                     </div>
-                    <div className="text-xs text-green-600 dark:text-green-400">
-                      {getActiveItems('technicians').length} actifs
-                    </div>
                   </div>
 
                   <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -325,18 +580,12 @@ const AppContent = () => {
                     <div className="text-2xl font-bold text-gray-800 dark:text-white">
                       {data.suppliers?.length || 0}
                     </div>
-                    <div className="text-xs text-green-600 dark:text-green-400">
-                      {getActiveItems('suppliers').length} actifs
-                    </div>
                   </div>
 
                   <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Équipements</div>
                     <div className="text-2xl font-bold text-gray-800 dark:text-white">
                       {data.equipment?.length || 0}
-                    </div>
-                    <div className="text-xs text-green-600 dark:text-green-400">
-                      {getActiveItems('equipment').length} actifs
                     </div>
                   </div>
                 </div>
@@ -352,8 +601,9 @@ const AppContent = () => {
         onClose={() => setIsNotificationPanelOpen(false)}
       />
 
-      {/* MODALS */}
+      {/* ========== MODALS ========== */}
       
+      {/* Créer intervention */}
       {isCreateInterventionModalOpen && (
         <CreateInterventionModal
           isOpen={isCreateInterventionModalOpen}
@@ -368,6 +618,7 @@ const AppContent = () => {
         />
       )}
         
+      {/* Détail intervention */}
       {selectedIntervention && (
         <InterventionDetailModal
           intervention={selectedIntervention}
@@ -378,6 +629,7 @@ const AppContent = () => {
         />
       )}
 
+      {/* Gestion données admin */}
       {isAdminModalOpen && (
         <UnifiedAdminModal
           isOpen={isAdminModalOpen}
@@ -391,6 +643,7 @@ const AppContent = () => {
         />
       )}
 
+      {/* Paramètres */}
       {isSettingsModalOpen && (
         <SettingsModal
           isOpen={isSettingsModalOpen}
@@ -401,56 +654,18 @@ const AppContent = () => {
         />
       )}
 
-      {isCreateUserModalOpen && (
-        <CreateUserModal
-          isOpen={isCreateUserModalOpen}
-          onClose={() => setIsCreateUserModalOpen(false)}
-          onAddUser={async (userData) => {
-            const result = await addUser(userData);
-            if (result.success) {
-              setIsCreateUserModalOpen(false);
-            }
-            return result;
-          }}
-        />
-      )}
-
-      {isUserManagementModalOpen && selectedUser && (
-        <UserManagementModal
-          isOpen={isUserManagementModalOpen}
+      {/* ✅ CORRECTION : Modal utilisateur unifiée */}
+      {isUserModalOpen && (
+        <UnifiedUserModal
+          isOpen={isUserModalOpen}
           onClose={() => {
-            setIsUserManagementModalOpen(false);
+            setIsUserModalOpen(false);
             setSelectedUser(null);
           }}
+          mode={userModalMode}
           user={selectedUser}
-          onUpdateUser={updateUser}
-          onResetPassword={resetPassword}
-          onDeleteUser={deleteUser}
-          onActivateUser={activateUser}
-          onUpdatePassword={(user) => {
-            setIsUserManagementModalOpen(false);
-            setSelectedUser(user);
-            setIsUpdatePasswordModalOpen(true);
-          }}
-        />
-      )}
-
-      {isUpdatePasswordModalOpen && selectedUser && (
-        <UpdatePasswordModal
-          isOpen={isUpdatePasswordModalOpen}
-          onClose={() => {
-            setIsUpdatePasswordModalOpen(false);
-            setSelectedUser(null);
-          }}
-          user={selectedUser}
-          onUpdatePassword={async (userId, password) => {
-            const result = await updateUserPassword(userId, password);
-            if (result.success) {
-              setIsUpdatePasswordModalOpen(false);
-              setSelectedUser(null);
-            }
-            return result;
-          }}
+          onSubmit={handleUserModalSubmit}
+          currentUser={user}
         />
       )}
 
@@ -468,7 +683,7 @@ const AppContent = () => {
   );
 };
 
-// App principale avec NotificationProvider
+// App principale
 const App = () => {
   return (
     <ErrorBoundary>
