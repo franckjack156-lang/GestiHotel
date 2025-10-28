@@ -32,10 +32,18 @@ const InterventionDetailModal = ({
 
   // Mettre à jour localMessages quand intervention change
   useEffect(() => {
-    if (intervention?.messages) {
-      setLocalMessages(intervention.messages);
-    }
-  }, [intervention]);
+  if (intervention?.messages) {
+    setLocalMessages(prev => {
+      // Merger intelligemment au lieu d'écraser
+      const newMessages = intervention.messages.filter(
+        msg => !prev.find(p => p.id === msg.id)
+      );
+      return [...prev, ...newMessages].sort((a, b) => 
+        a.timestamp - b.timestamp
+      );
+    });
+  }
+}, [intervention?.messages]);
 
   if (!intervention) return null;
 
@@ -137,10 +145,16 @@ const InterventionDetailModal = ({
     }
   };
 
-  const handleImageError = (photoId) => {
+  const handleImageError = (photoId, retryCount = 0) => {
+  if (retryCount < 3) {
+    setTimeout(() => {
+      // Tenter de recharger
+      setImageReload(prev => ({ ...prev, [photoId]: Date.now() }));
+    }, 1000 * (retryCount + 1));
+  } else {
     setImageErrors(prev => ({ ...prev, [photoId]: true }));
-    console.error('❌ Erreur chargement image:', photoId);
-  };
+  }
+};
 
   const getPhotoUrl = (photo) => {
     if (typeof photo === 'string') return photo;

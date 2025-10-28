@@ -52,7 +52,7 @@ const FormModal = ({
 
     // Validation personnalisée
     if (validate) {
-      const validationErrors = validate(formData);
+      const validationErrors = await validate(formData);
       if (Object.keys(validationErrors).length > 0) {
         setErrors(validationErrors);
         return;

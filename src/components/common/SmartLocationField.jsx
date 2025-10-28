@@ -83,28 +83,23 @@ const SmartLocationField = ({
     setShowSuggestions(false);
   };
 
-  const handleAddNew = async () => {
-    if (!canAddNew || !inputValue.trim()) return;
-
-    setIsAdding(true);
-    
-    try {
-      const result = await onAddLocation({
+    const handleAddNew = async () => {
+  // Vérifier d'abord
+  const exists = locations.some(loc => 
+    loc.name.toLowerCase() === inputValue.toLowerCase()
+  );
+  
+  if (exists) {
+    alert('Cette localisation existe déjà');
+    return;
+  }
+  
+  const result = await onAddLocation({
         name: inputValue.trim(),
         value: inputValue.trim().toLowerCase().replace(/\s+/g, '-'),
         category: 'locations'
       });
-
-      if (result.success) {
-        onChange(inputValue.trim());
-        setShowSuggestions(false);
-      }
-    } catch (error) {
-      console.error('Erreur ajout localisation:', error);
-    } finally {
-      setIsAdding(false);
-    }
-  };
+};
 
   const getRoomStatus = () => {
     if (!inputValue) return null;
