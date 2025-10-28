@@ -1,26 +1,20 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, Mic, Home, MapPin, ClipboardList, User, Hammer, AlertCircle, Users, Info } from 'lucide-react';
-import { useVoiceRecognition } from '../../hooks/useVoiceRecognition';
-import { useToast } from '../../contexts/ToastContext';
+// src/components/Interventions/CreateInterventionModal.jsx - VERSION OPTIMISÉE
+import React from 'react';
+import { ClipboardList, Home, MapPin, Hammer, AlertCircle } from 'lucide-react';
+import FormModal from '../common/FormModal';
+import {
+  SelectInput,
+  TextInput,
+  TextareaInput,
+  FormSection,
+  FormHelp
+} from '../common/FormFields';
 import SmartLocationField from '../common/SmartLocationField';
 
-// Hook personnalisé pour le debounce
-const useDebounce = (value, delay) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-};
-
+/**
+ * Modal de création d'intervention - VERSION SIMPLIFIÉE
+ * Réduction de 590 lignes à ~250 lignes
+ */
 const CreateInterventionModal = ({ 
   isOpen, 
   onClose, 
@@ -29,360 +23,253 @@ const CreateInterventionModal = ({
   adminOptions = {}, 
   user, 
   blockedRooms = [],
-  onManageDropdowns,
-  onAddLocation // ✅ AJOUT : Prop pour ajouter une localisation
+  onAddLocation
 }) => {
-  const safeDropdowns = {
-    roomTypes: dropdowns?.roomTypes?.filter(item => item.active) || [],
-    locations: dropdowns?.locations?.filter(item => item.active) || [],
-    missionTypes: dropdowns?.missionTypes?.filter(item => item.active) || [],
-    creators: dropdowns?.creators?.filter(item => item.active) || [],
-    interventionTypes: dropdowns?.interventionTypes?.filter(item => item.active) || [],
-    priorities: dropdowns?.priorities?.filter(item => item.active) || [],
+  // Filtrer les options actives
+  const getActiveOptions = (items = []) => 
+    items.filter(item => item.active !== false);
+
+  const activeDropdowns = {
+    roomTypes: getActiveOptions(dropdowns.roomTypes),
+    locations: getActiveOptions(dropdowns.locations),
+    missionTypes: getActiveOptions(dropdowns.missionTypes),
+    interventionTypes: getActiveOptions(dropdowns.interventionTypes),
+    priorities: getActiveOptions(dropdowns.priorities),
   };
 
-  const safeAdminOptions = {
-    technicians: adminOptions?.technicians?.filter(t => t.active !== false) || [],
-    suppliers: adminOptions?.suppliers || [],
-    equipment: adminOptions?.equipment || [],
-  };
+  const activeTechnicians = getActiveOptions(adminOptions.technicians);
 
-  const [formData, setFormData] = useState({
-    roomType: safeDropdowns.roomTypes[0]?.value || '',
+  const initialData = {
+    roomType: activeDropdowns.roomTypes[0]?.value || '',
     location: '',
     missionType: '',
     missionSummary: '',
     missionComment: '',
     assignedTo: '',
-    creator: user?.uid || '',
     priority: 'normal',
     interventionType: ''
-  });
+  };
 
-  const [showMissionSuggestions, setShowMissionSuggestions] = useState(false);
-  
-  const { isListening, startListening } = useVoiceRecognition();
-  const { addToast } = useToast();
+  const validate = (formData) => {
+    const errors = {};
 
-  // Utiliser le debounce pour les recherches
-  const debouncedMission = useDebounce(formData.missionSummary, 300);
-
-  const filteredMissionSuggestions = useMemo(() => {
-    if (!debouncedMission || debouncedMission.length < 2) return [];
-    return safeDropdowns.missionTypes.filter(mission =>
-      mission.name.toLowerCase().includes(debouncedMission.toLowerCase())
-    ).slice(0, 5);
-  }, [debouncedMission, safeDropdowns.missionTypes]);
-
-  useEffect(() => {
-    const handleClickOutside = () => {
-      setShowMissionSuggestions(false);
-    };
-
-    document.addEventListener('click', handleClickOutside);
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, []);
-
-  const handleMissionSelect = useCallback((mission) => {
-    setFormData(prev => ({ ...prev, missionSummary: mission.name }));
-    setShowMissionSuggestions(false);
-  }, []);
-
-  const handleVoiceInput = useCallback(() => {
-    startListening((transcript) => {
-      setFormData(prev => ({ 
-        ...prev, 
-        missionComment: prev.missionComment + ' ' + transcript 
-      }));
-    });
-  }, [startListening]);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!formData.location && formData.roomType === 'chambre') {
-      addToast({
-        type: 'error',
-        title: 'Champ obligatoire',
-        message: 'La localisation est obligatoire pour les chambres'
-      });
-      return;
+    if (!formData.location?.trim()) {
+      errors.location = 'La localisation est obligatoire';
     }
 
-    if (!formData.missionSummary || !formData.missionSummary.trim()) {
-      addToast({
-        type: 'error',
-        title: 'Champ obligatoire',
-        message: 'Le résumé de mission est obligatoire'
-      });
-      return;
+    if (!formData.missionSummary?.trim()) {
+      errors.missionSummary = 'Le résumé de mission est obligatoire';
+    } else if (formData.missionSummary.trim().length < 3) {
+      errors.missionSummary = 'Minimum 3 caractères';
     }
 
     if (!formData.assignedTo) {
-      addToast({
-        type: 'error',
-        title: 'Champ obligatoire',
-        message: 'L\'assignation à un technicien est obligatoire'
-      });
-      return;
+      errors.assignedTo = 'L\'assignation est obligatoire';
     }
 
-    const interventionData = {
-      roomType: formData.roomType,
-      location: formData.location.trim(),
-      missionType: formData.missionType,
-      missionSummary: formData.missionSummary.trim(),
-      missionComment: formData.missionComment.trim(),
-      assignedTo: formData.assignedTo,
-      creator: formData.creator || user.uid,
-      creatorName: safeDropdowns.creators.find(c => c.value === formData.creator)?.name || user.name,
-      status: 'todo',
-      priority: formData.priority,
-      interventionType: formData.interventionType
-    };
-
-    const result = await onAddIntervention(interventionData, []);
-    
-    if (result.success) {
-      onClose();
-      setFormData({
-        roomType: safeDropdowns.roomTypes[0]?.value || '',
-        location: '',
-        missionType: '',
-        missionSummary: '',
-        missionComment: '',
-        assignedTo: '',
-        creator: user?.uid || '',
-        priority: 'normal',
-        interventionType: ''
-      });
-    }
+    return errors;
   };
 
-  if (!isOpen) return null;
+  const handleSubmit = async (formData) => {
+    const interventionData = {
+      ...formData,
+      creator: user.uid,
+      creatorName: user.name || user.email,
+      status: 'todo'
+    };
+
+    return await onAddIntervention(interventionData, []);
+  };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-2xl w-full max-h-[95vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Nouvelle Intervention</h2>
-            <button 
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition"
-            >
-              <X size={24} />
-            </button>
-          </div>
-
-          <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+    <FormModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Nouvelle Intervention"
+      subtitle="Créer une nouvelle demande d'intervention"
+      icon={ClipboardList}
+      size="lg"
+      initialData={initialData}
+      onSubmit={handleSubmit}
+      validate={validate}
+      submitLabel="Créer l'intervention"
+    >
+      {({ formData, setFormData, errors, isSubmitting }) => (
+        <>
+          {/* Section Contexte */}
+          <FormSection
+            title="Contexte de l'intervention"
+            description="Informations sur le lieu et la création"
+          >
+            {/* Informations de création */}
+            <div className="grid grid-cols-2 gap-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
               <div>
-                <span className="font-medium text-blue-900 dark:text-blue-100">Date et heure:</span>
-                <p className="text-blue-700 dark:text-blue-300">{new Date().toLocaleString('fr-FR')}</p>
+                <span className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                  Date et heure
+                </span>
+                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                  {new Date().toLocaleString('fr-FR')}
+                </p>
               </div>
               <div>
-                <span className="font-medium text-blue-900 dark:text-blue-100">Créé par:</span>
-                <p className="text-blue-700 dark:text-blue-300">{user?.name}</p>
+                <span className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                  Créé par
+                </span>
+                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                  {user?.name || user?.email}
+                </p>
               </div>
             </div>
-          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Type de Local */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Type de Local *
-              </label>
-              <select
-                value={formData.roomType}
-                onChange={(e) => setFormData({...formData, roomType: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                required
-              >
-                <option value="">Sélectionner un type de local</option>
-                {safeDropdowns.roomTypes?.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {/* ✅ SmartLocationField - Le nouveau composant intelligent */}
+            {/* Type de local */}
+            <SelectInput
+              id="roomType"
+              label="Type de Local"
+              required
+              value={formData.roomType}
+              onChange={(value) => setFormData({ ...formData, roomType: value })}
+              disabled={isSubmitting}
+              options={activeDropdowns.roomTypes.map(rt => ({
+                value: rt.value,
+                label: rt.name
+              }))}
+            />
+
+            {/* Localisation intelligente */}
             {formData.roomType && onAddLocation && (
-              <SmartLocationField
-                value={formData.location}
-                onChange={(value) => setFormData({...formData, location: value})}
-                locations={safeDropdowns.locations}
-                blockedRooms={blockedRooms}
-                onAddLocation={onAddLocation}
-                required={formData.roomType === 'chambre'}
-                placeholder="Ex: Chambre 206, Suite 301..."
-              />
-            )}
-
-            {/* Type d'intervention */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Type d'intervention
-              </label>
-              <select
-                value={formData.interventionType}
-                onChange={(e) => setFormData({...formData, interventionType: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="">Sélectionner...</option>
-                {safeDropdowns.interventionTypes?.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Priorité */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Priorité
-              </label>
-              <select
-                value={formData.priority}
-                onChange={(e) => setFormData({...formData, priority: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                {safeDropdowns.priorities?.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Mission */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Mission - Résumé *
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={formData.missionSummary}
-                  onChange={(e) => setFormData({...formData, missionSummary: e.target.value})}
-                  onFocus={() => setShowMissionSuggestions(true)}
-                  onClick={(e) => e.stopPropagation()}
-                  placeholder="Ex: Fuite robinet, Climatisation en panne, Ampoule à changer..."
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  required
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Localisation
+                  {formData.roomType === 'chambre' && <span className="text-red-500 ml-1">*</span>}
+                </label>
+                <SmartLocationField
+                  value={formData.location}
+                  onChange={(value) => setFormData({ ...formData, location: value })}
+                  locations={activeDropdowns.locations}
+                  blockedRooms={blockedRooms}
+                  onAddLocation={onAddLocation}
+                  required={formData.roomType === 'chambre'}
+                  placeholder="Ex: Chambre 206, Suite 301..."
                 />
-                
-                {showMissionSuggestions && filteredMissionSuggestions.length > 0 && (
-                  <div 
-                    className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {filteredMissionSuggestions.map((mission, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        onClick={() => handleMissionSelect(mission)}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 first:rounded-t-lg last:rounded-b-lg transition"
-                      >
-                        {mission.name}
-                      </button>
-                    ))}
-                  </div>
+                {errors.location && (
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                    {errors.location}
+                  </p>
                 )}
               </div>
+            )}
+          </FormSection>
+
+          {/* Section Détails de l'intervention */}
+          <FormSection
+            title="Détails de l'intervention"
+            description="Décrire la nature et l'urgence de l'intervention"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Type d'intervention */}
+              <SelectInput
+                id="interventionType"
+                label="Type d'intervention"
+                value={formData.interventionType}
+                onChange={(value) => setFormData({ ...formData, interventionType: value })}
+                placeholder="Sélectionner..."
+                disabled={isSubmitting}
+                options={activeDropdowns.interventionTypes.map(it => ({
+                  value: it.value,
+                  label: it.name
+                }))}
+              />
+
+              {/* Priorité */}
+              <SelectInput
+                id="priority"
+                label="Priorité"
+                required
+                value={formData.priority}
+                onChange={(value) => setFormData({ ...formData, priority: value })}
+                disabled={isSubmitting}
+                options={activeDropdowns.priorities.map(p => ({
+                  value: p.value,
+                  label: p.name
+                }))}
+              />
             </div>
+
+            {/* Type de mission */}
+            <SelectInput
+              id="missionType"
+              label="Type de mission"
+              value={formData.missionType}
+              onChange={(value) => setFormData({ ...formData, missionType: value })}
+              placeholder="Sélectionner..."
+              disabled={isSubmitting}
+              options={activeDropdowns.missionTypes.map(mt => ({
+                value: mt.value,
+                label: mt.name
+              }))}
+            />
+
+            {/* Résumé de mission */}
+            <TextInput
+              id="missionSummary"
+              label="Mission - Résumé"
+              required
+              value={formData.missionSummary}
+              onChange={(value) => setFormData({ ...formData, missionSummary: value })}
+              error={errors.missionSummary}
+              placeholder="Ex: Fuite robinet, Climatisation en panne, Ampoule à changer..."
+              disabled={isSubmitting}
+              hint="Décrivez brièvement le problème à résoudre"
+            />
 
             {/* Commentaire mission */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Commentaire mission (optionnel)
-              </label>
-              <div className="relative">
-                <textarea
-                  value={formData.missionComment}
-                  onChange={(e) => setFormData({...formData, missionComment: e.target.value})}
-                  placeholder="Détails supplémentaires, observations particulières..."
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition min-h-24 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-                <button
-                  type="button"
-                  onClick={handleVoiceInput}
-                  disabled={isListening}
-                  className={`absolute bottom-3 right-3 p-2 rounded-full transition ${
-                    isListening 
-                      ? 'bg-red-500 text-white animate-pulse' 
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  }`}
-                >
-                  <Mic size={20} />
-                </button>
+            <TextareaInput
+              id="missionComment"
+              label="Commentaire mission"
+              value={formData.missionComment}
+              onChange={(value) => setFormData({ ...formData, missionComment: value })}
+              placeholder="Détails supplémentaires, observations particulières..."
+              disabled={isSubmitting}
+              rows={4}
+              hint="Ajoutez toutes les informations utiles pour le technicien"
+            />
+          </FormSection>
+
+          {/* Section Assignation */}
+          <FormSection
+            title="Assignation"
+            description="Sélectionner le technicien en charge"
+          >
+            <SelectInput
+              id="assignedTo"
+              label="Assigner à un technicien"
+              required
+              value={formData.assignedTo}
+              onChange={(value) => setFormData({ ...formData, assignedTo: value })}
+              error={errors.assignedTo}
+              placeholder="Sélectionner un technicien"
+              disabled={isSubmitting}
+              options={activeTechnicians.map(tech => ({
+                value: tech.id,
+                label: `${tech.name}${tech.specialty ? ` - ${tech.specialty}` : ''}`
+              }))}
+            />
+
+            {activeTechnicians.length === 0 && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-700 dark:text-amber-300">
+                    Aucun technicien disponible. Veuillez contacter un administrateur 
+                    pour ajouter des techniciens au système.
+                  </p>
+                </div>
               </div>
-              {isListening && (
-                <p className="text-sm text-orange-600 dark:text-orange-400 mt-2">
-                  <Mic size={16} className="inline mr-1" />
-                  En écoute... Parlez maintenant
-                </p>
-              )}
-            </div>
-
-            {/* Assignation technicien */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Assigner à un technicien *
-              </label>
-              <select
-                value={formData.assignedTo}
-                onChange={(e) => setFormData({...formData, assignedTo: e.target.value})}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                required
-              >
-                <option value="">Sélectionner un technicien</option>
-                {safeAdminOptions.technicians?.map(technician => (
-                  <option key={technician.id} value={technician.id}>
-                    {technician.name}{technician.specialty ? ` - ${technician.specialty}` : ''}
-                  </option>
-                ))}
-              </select>
-              {(!safeAdminOptions.technicians || safeAdminOptions.technicians.length === 0) && (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Aucun technicien disponible. 
-                  <button
-                    type="button"
-                    onClick={onManageDropdowns}
-                    className="text-indigo-600 dark:text-indigo-400 hover:underline ml-1"
-                  >
-                    Gérer les techniciens
-                  </button>
-                </p>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-6 border-t border-gray-200 dark:border-gray-700">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition"
-              >
-                Annuler
-              </button>
-              <button
-                type="submit"
-                className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
-              >
-                Créer l'intervention
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+            )}
+          </FormSection>
+        </>
+      )}
+    </FormModal>
   );
 };
 
