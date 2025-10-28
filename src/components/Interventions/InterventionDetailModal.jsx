@@ -102,7 +102,7 @@ const InterventionDetailModal = ({
       type: 'text',
       senderId: user.uid,
       senderName: user.name || user.email,
-      timestamp: new Date(),
+      timestamp: serverTimestamp(),
       read: false
     };
 
@@ -131,6 +131,11 @@ const InterventionDetailModal = ({
       });
     }
   };
+  const formatDate = (date) => {
+  if (!date) return '—';
+  const d = date.toDate ? date.toDate() : new Date(date);
+  return d.toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
 
   const handleBlockRoom = async () => {
     const reason = prompt('Raison du blocage de la chambre:');
@@ -247,7 +252,7 @@ const InterventionDetailModal = ({
                       <div>
                         <span className="text-gray-600 dark:text-gray-400">Créée le:</span>
                         <span className="ml-2 text-gray-800 dark:text-gray-200">
-                          {intervention.createdAt?.toLocaleDateString?.('fr-FR') || 'Date inconnue'}
+                          {intervention.createdAt?.formatDate()?.('fr-FR') || 'Date inconnue'}
                         </span>
                       </div>
                       <div>
@@ -506,7 +511,7 @@ const InterventionDetailModal = ({
                           )}
                         </div>
                         <span className="text-sm text-gray-500 dark:text-gray-400">
-                          {supply.addedAt?.toDate?.()?.toLocaleDateString('fr-FR') || 'Date inconnue'}
+                          {supply.addedAt?.toDate?.()?.formatDate()('fr-FR') || 'Date inconnue'}
                         </span>
                       </div>
                     ))}
@@ -602,7 +607,7 @@ const InterventionDetailModal = ({
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Dernière modification:</span>
                     <span className="text-gray-800 dark:text-gray-200">
-                      {intervention.updatedAt?.toLocaleDateString?.('fr-FR') || 'Inconnue'}
+                      {intervention.updatedAt?.formatDate()?.('fr-FR') || 'Inconnue'}
                     </span>
                   </div>
                   {intervention.estimatedDuration && (

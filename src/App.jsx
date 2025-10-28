@@ -66,7 +66,7 @@ import {
 const createHistoryEntry = (status, comment, currentUser, fields = []) => ({
   id: `history_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
   status: status || 'updated',
-  date: Timestamp.now(), // ✅ Utiliser Timestamp.now() au lieu de serverTimestamp()
+  date:  serverTimestamp(), 
   by: currentUser.uid,
   byName: currentUser.name || currentUser.email,
   comment: comment || 'Modification effectuée',
@@ -449,7 +449,7 @@ const AppContent = () => {
         type: 'text',
         senderId: user.uid,
         senderName: user.name || user.email,
-        timestamp: Timestamp.now(),
+        timestamp: serverTimestamp(),
         read: false
       };
 
