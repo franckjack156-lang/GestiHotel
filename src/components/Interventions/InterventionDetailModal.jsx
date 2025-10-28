@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, MapPin, User, MessageSquare, Clock, Calendar, 
   Camera, MessageCircle, Send, Package, AlertCircle,
@@ -20,6 +20,16 @@ const InterventionDetailModal = ({
   const [activeTab, setActiveTab] = useState('details');
   const [imageErrors, setImageErrors] = useState({});
   const { addToast } = useToast();
+  
+  // ✅ CORRECTION: Ajout du ref pour l'auto-scroll des messages
+  const messagesEndRef = useRef(null);
+
+  // ✅ Auto-scroll vers le bas quand les messages changent
+  useEffect(() => {
+    if (activeTab === 'messages' && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [intervention?.messages, activeTab]);
 
   if (!intervention) return null;
 
@@ -78,7 +88,7 @@ const InterventionDetailModal = ({
         type: 'text',
         senderId: user.uid,
         senderName: user.name || user.email,
-        timestamp: serverTimestamp(), // ✅ CORRECTION 2: serverTimestamp au lieu de new Date()
+        timestamp: serverTimestamp(),
         read: false
       })
     });
@@ -290,10 +300,7 @@ const InterventionDetailModal = ({
                     <h3 className="font-semibold text-gray-800 dark:text-white mb-3">Conversation</h3>
                     
                     {/* Liste des messages avec scroll auto */}
-                    <div 
-                      ref={messagesEndRef} 
-                      className="space-y-3 max-h-96 overflow-y-auto mb-4 scroll-smooth"
-                    >
+                    <div className="space-y-3 max-h-96 overflow-y-auto mb-4 scroll-smooth">
                       {intervention.messages
                         ?.sort((a, b) => {
                           const dateA = a.timestamp instanceof Date ? a.timestamp : new Date(a.timestamp);
@@ -329,6 +336,9 @@ const InterventionDetailModal = ({
                           Aucun message pour le moment
                         </p>
                       )}
+                      
+                      {/* ✅ CORRECTION: Element de référence pour l'auto-scroll */}
+                      <div ref={messagesEndRef} />
                     </div>
 
                     {/* Champ de message */}
