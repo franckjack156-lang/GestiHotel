@@ -14,7 +14,7 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import { useUnifiedData } from './hooks/useUnifiedData';
 import { useSettings } from './hooks/useSettings';
 import { useInterventions } from './hooks/useInterventions';
-import { useUserManagement } from './hooks/useUserManagement';
+import { useUserManagement } from './hooks/useFirestore';
 
 // Layout
 import Header from './components/layout/Header';
@@ -36,9 +36,7 @@ import UnifiedAdminModal from './components/Admin/UnifiedAdminModal';
 import CreateInterventionModal from './components/Interventions/CreateInterventionModal';
 import InterventionDetailModal from './components/Interventions/InterventionDetailModal';
 import SettingsModal from './components/Settings/SettingsModal';
-import CreateUserModal from './components/Users/CreateUserModal';
-import UserManagementModal from './components/Users/UserManagementModal';
-import UpdatePasswordModal from './components/Users/UpdatePasswordModal';
+import UnifiedUserModal from './components/Users/UnifiedUserModal';
 
 const AppContent = () => {
   const { user, loading: authLoading, logout } = useAuth();

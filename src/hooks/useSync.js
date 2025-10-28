@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { syncService } from '../services/syncService';
+import { syncService } from '../services/index';
 
 export const useSync = (user, interventions, addToast) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
