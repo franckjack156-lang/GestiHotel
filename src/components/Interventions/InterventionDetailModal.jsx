@@ -19,17 +19,23 @@ const InterventionDetailModal = ({
   const [newMessage, setNewMessage] = useState('');
   const [activeTab, setActiveTab] = useState('details');
   const [imageErrors, setImageErrors] = useState({});
+  const [localMessages, setLocalMessages] = useState(intervention?.messages || []);
   const { addToast } = useToast();
   
-  // ✅ CORRECTION: Ajout du ref pour l'auto-scroll des messages
   const messagesEndRef = useRef(null);
 
-  // ✅ Auto-scroll vers le bas quand les messages changent
   useEffect(() => {
     if (activeTab === 'messages' && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [intervention?.messages, activeTab]);
+  }, [localMessages, activeTab]);
+
+  // Mettre à jour localMessages quand intervention change
+  useEffect(() => {
+    if (intervention?.messages) {
+      setLocalMessages(intervention.messages);
+    }
+  }, [intervention]);
 
   if (!intervention) return null;
 
@@ -81,24 +87,38 @@ const InterventionDetailModal = ({
   const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
 
-     const result = await onUpdateIntervention(intervention.id, {
-      messages: arrayUnion({
-        id: `msg_${Date.now()}`,
-        text: newMessage.trim(),
-        type: 'text',
-        senderId: user.uid,
-        senderName: user.name || user.email,
-        timestamp: serverTimestamp(),
-        read: false
-      })
+    const newMessageObj = {
+      id: `msg_${Date.now()}`,
+      text: newMessage.trim(),
+      type: 'text',
+      senderId: user.uid,
+      senderName: user.name || user.email,
+      timestamp: new Date(),
+      read: false
+    };
+
+    // Mise à jour immédiate de l'état local
+    setLocalMessages(prev => [...prev, newMessageObj]);
+    setNewMessage('');
+
+    // Mise à jour Firestore
+    const result = await onUpdateIntervention(intervention.id, {
+      messages: arrayUnion(newMessageObj)
     });
 
     if (result.success) {
-      setNewMessage('');
       addToast({
         type: 'success',
         title: 'Message envoyé',
         message: 'Votre message a été envoyé'
+      });
+    } else {
+      // Revenir en arrière en cas d'erreur
+      setLocalMessages(prev => prev.filter(msg => msg.id !== newMessageObj.id));
+      addToast({
+        type: 'error',
+        title: 'Erreur',
+        message: 'Impossible d\'envoyer le message'
       });
     }
   };
@@ -301,11 +321,17 @@ const InterventionDetailModal = ({
                     
                     {/* Liste des messages avec scroll auto */}
                     <div className="space-y-3 max-h-96 overflow-y-auto mb-4 scroll-smooth">
-                      {intervention.messages
+                      {localMessages
                         ?.sort((a, b) => {
-                          const dateA = a.timestamp instanceof Date ? a.timestamp : new Date(a.timestamp);
-                          const dateB = b.timestamp instanceof Date ? b.timestamp : new Date(b.timestamp);
-                          return dateA - dateB;
+                          const getTimestamp = (msg) => {
+                            if (msg.timestamp instanceof Date) return msg.timestamp.getTime();
+                            if (msg.timestamp?.toDate) return msg.timestamp.toDate().getTime();
+                            if (typeof msg.timestamp === 'string') return new Date(msg.timestamp).getTime();
+                            if (typeof msg.timestamp === 'number') return msg.timestamp;
+                            return 0;
+                          };
+                          
+                          return getTimestamp(a) - getTimestamp(b);
                         })
                         .map((message, index) => (
                           <div
@@ -331,13 +357,12 @@ const InterventionDetailModal = ({
                           </div>
                         ))}
                       
-                      {(!intervention.messages || intervention.messages.length === 0) && (
+                      {(!localMessages || localMessages.length === 0) && (
                         <p className="text-gray-500 dark:text-gray-400 text-center py-8">
                           Aucun message pour le moment
                         </p>
                       )}
                       
-                      {/* ✅ CORRECTION: Element de référence pour l'auto-scroll */}
                       <div ref={messagesEndRef} />
                     </div>
 
@@ -380,14 +405,13 @@ const InterventionDetailModal = ({
                       ?.sort((a, b) => {
                         const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
                         const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-                        return dateB - dateA; // Plus récent en premier
+                        return dateB - dateA;
                       })
                       .map((event, index) => (
                         <div 
                           key={event.id || index} 
                           className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-500 transition"
                         >
-                          {/* Timeline dot */}
                           <div className="flex-shrink-0 mt-2">
                             <div className={`w-3 h-3 rounded-full ${
                               event.status === 'completed' ? 'bg-green-500' :
@@ -399,26 +423,22 @@ const InterventionDetailModal = ({
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            {/* Status badge */}
                             {event.status && (
                               <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium mb-2 ${getStatusColor(event.status)}`}>
                                 {getStatusText(event.status)}
                               </span>
                             )}
 
-                            {/* Commentaire */}
                             <p className="text-sm text-gray-800 dark:text-gray-200 mb-1">
                               {event.comment}
                             </p>
 
-                            {/* Champs modifiés (optionnel) */}
                             {event.fields && event.fields.length > 0 && (
                               <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                                 Modifié: {event.fields.join(', ')}
                               </div>
                             )}
 
-                            {/* Meta info */}
                             <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-2">
                               <span className="font-medium">{event.byName}</span>
                               <span>•</span>

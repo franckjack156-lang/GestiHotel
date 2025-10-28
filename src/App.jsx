@@ -15,7 +15,8 @@ import {
   deleteDoc,
   serverTimestamp,
   getDocs,
-  arrayUnion 
+  arrayUnion,
+  Timestamp  
 } from 'firebase/firestore';
 import { db } from './config/firebase';
 
@@ -129,16 +130,25 @@ const AppContent = () => {
       const data = snapshot.docs.map(doc => {
         const docData = doc.data();
         return {
-          id: doc.id,
-          ...docData,
-          createdAt: docData.createdAt?.toDate() || new Date(),
-          // ✅ Convertir les timestamps des messages
-          messages: docData.messages?.map(msg => ({
-            ...msg,
-            timestamp: msg.timestamp?.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp)
-          })) || []
-        };
-      });
+              id: doc.id,
+              ...docData,
+              createdAt: docData.createdAt?.toDate ? docData.createdAt.toDate() : new Date(),
+              updatedAt: docData.updatedAt?.toDate ? docData.updatedAt.toDate() : null,
+              
+              // ✅ Convertir les timestamps des messages
+              messages: docData.messages?.map(msg => ({
+                ...msg,
+                timestamp: msg.timestamp?.toDate ? msg.timestamp.toDate() : new Date(msg.timestamp)
+              })) || [],
+              
+              // ✅ Convertir les timestamps de l'historique
+              history: docData.history?.map(entry => ({
+                ...entry,
+                date: entry.date?.toDate ? entry.date.toDate() : new Date(entry.date)
+              })) || []
+            };
+          });
+      console.log('✅ Interventions chargées:', data.length);
       setInterventions(data);
     }
   );
@@ -227,149 +237,221 @@ const AppContent = () => {
   };
 
   const handleCreateIntervention = async (interventionData, photos) => {
-  try {
-    // Créer d'abord l'intervention pour obtenir l'ID
-    const intervention = {
-      ...interventionData,
-      status: 'todo',
-      photos: [],
-      messages: [],
-      suppliesNeeded: [],
-      history: []
-    };
-
-    const result = await interventionService.create(intervention, user);
-
-    if (!result.success) {
-      throw new Error(result.error || 'Erreur création intervention');
-    }
-
-    const interventionId = result.id;
-
-    // ✅ Maintenant uploader les photos avec le bon ID
-    if (photos && photos.length > 0) {
-      const uploadResults = await storageService.uploadMultiple(
-        photos,
-        `interventions/${interventionId}` // ✅ Utiliser le vrai ID
+    try {
+      // ✅ Créer d'abord l'historique initial
+      const initialHistory = createHistoryEntry(
+        'todo',
+        'Intervention créée',
+        user
       );
 
-      if (uploadResults.success && uploadResults.urls.length > 0) {
-        // Mettre à jour l'intervention avec les URLs des photos
-        await interventionService.update(
-          interventionId,
-          {
-            photos: arrayUnion(...uploadResults.urls),
+      // Créer l'intervention avec l'historique initial
+      const intervention = {
+        ...interventionData,
+        status: 'todo',
+        photos: [],
+        messages: [],
+        suppliesNeeded: [],
+        history: [initialHistory], // ✅ Historique initialisé correctement
+        createdAt: serverTimestamp(),
+        createdBy: user.uid,
+        createdByName: user.name || user.email
+      };
+
+      const result = await interventionService.create(intervention, user);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Erreur création intervention');
+      }
+
+      const interventionId = result.id;
+
+      // Upload des photos si présentes
+      if (photos && photos.length > 0) {
+        const uploadResults = await storageService.uploadMultiple(
+          photos,
+          `interventions/${interventionId}`
+        );
+
+        if (uploadResults.success && uploadResults.urls.length > 0) {
+          // ✅ Mettre à jour avec arrayUnion pour l'historique
+          await updateDoc(doc(db, 'interventions', interventionId), {
+            photos: uploadResults.urls,
             history: arrayUnion(createHistoryEntry(
               'todo',
-              `${uploadResults.urls.length} photo(s) ajoutée(s) lors de la création`,
+              `${uploadResults.urls.length} photo(s) ajoutée(s)`,
               user
             ))
-          },
-          user
-        );
+          });
+        }
       }
-    }
 
-    setIsCreateInterventionModalOpen(false);
-    addToast({ 
-      type: 'success', 
-      title: 'Intervention créée',
-      message: photos && photos.length > 0 
-        ? `Intervention créée avec ${photos.length} photo(s)` 
-        : 'Nouvelle intervention ajoutée avec succès'
-    });
-
-    return { success: true, id: interventionId };
-  } catch (error) {
-    console.error('Erreur création intervention:', error);
-    addToast({ 
-      type: 'error', 
-      message: 'Erreur lors de la création de l\'intervention' 
-    });
-    return { success: false, error: error.message };
-  }
-};
-
-  const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
-  try {
-    // Upload des nouvelles photos si présentes
-    let newPhotoUrls = [];
-    if (photos && photos.length > 0) {
-      const uploadResults = await storageService.uploadMultiple(
-        photos,
-        `interventions/${interventionId}`
-      );
-      if (uploadResults.success) {
-        newPhotoUrls = uploadResults.urls;
-      }
-    }
-
-    // ✅ Déterminer le commentaire d'historique selon les modifications
-    let historyComment = '';
-    let newStatus = updates.status;
-
-    if (updates.status) {
-      const statusLabels = {
-        todo: 'À faire',
-        inprogress: 'En cours',
-        ordering: 'En commande',
-        completed: 'Terminée',
-        cancelled: 'Annulée'
-      };
-      historyComment = `Statut changé à "${statusLabels[updates.status]}"`;
-    } else if (updates.assignedTo) {
-      historyComment = `Réassignée à ${updates.assignedToName || 'un technicien'}`;
-    } else if (updates.techComment) {
-      historyComment = 'Commentaire technicien mis à jour';
-    } else if (newPhotoUrls.length > 0) {
-      historyComment = `${newPhotoUrls.length} photo(s) ajoutée(s)`;
-    } else {
-      historyComment = 'Intervention mise à jour';
-    }
-
-    // ✅ Préparer les données de mise à jour
-    const updateData = {
-      ...updates,
-      updatedAt: serverTimestamp(),
-      updatedBy: user.uid,
-      updatedByName: user.name || user.email
-    };
-
-    // Ajouter les photos
-    if (newPhotoUrls.length > 0) {
-      updateData.photos = arrayUnion(...newPhotoUrls);
-    }
-
-    // ✅ Ajouter l'entrée d'historique
-    updateData.history = arrayUnion(createHistoryEntry(
-      newStatus || 'updated',
-      historyComment,
-      user
-    ));
-
-    // Mettre à jour l'intervention
-    const result = await interventionService.update(
-      interventionId,
-      updateData,
-      user
-    );
-
-    if (result.success) {
+      setIsCreateInterventionModalOpen(false);
       addToast({ 
         type: 'success', 
-        message: 'Intervention mise à jour' 
+        title: 'Intervention créée',
+        message: photos && photos.length > 0 
+          ? `Intervention créée avec ${photos.length} photo(s)` 
+          : 'Nouvelle intervention ajoutée avec succès'
       });
-    }
 
-    return result;
-  } catch (error) {
-    addToast({ 
-      type: 'error', 
-      message: 'Erreur lors de la mise à jour' 
-    });
-    return { success: false, error: error.message };
-  }
-};
+      return { success: true, id: interventionId };
+    } catch (error) {
+      console.error('❌ Erreur création intervention:', error);
+      addToast({ 
+        type: 'error', 
+        message: 'Erreur lors de la création de l\'intervention' 
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
+    try {
+      console.log('🔄 Mise à jour intervention:', interventionId, updates);
+
+      // ✅ Récupérer l'intervention actuelle pour comparer
+      const interventionRef = doc(db, 'interventions', interventionId);
+      const interventionSnap = await getDocs(query(
+        collection(db, 'interventions'),
+        where('__name__', '==', interventionId)
+      ));
+      
+      const currentIntervention = interventionSnap.docs[0]?.data();
+
+      // Upload des nouvelles photos si présentes
+      let newPhotoUrls = [];
+      if (photos && photos.length > 0) {
+        const uploadResults = await storageService.uploadMultiple(
+          photos,
+          `interventions/${interventionId}`
+        );
+        if (uploadResults.success) {
+          newPhotoUrls = uploadResults.urls;
+        }
+      }
+
+      // ✅ Construire le commentaire d'historique détaillé
+      let historyComment = '';
+      const changedFields = [];
+
+      // Analyser les changements
+      if (updates.status && updates.status !== currentIntervention?.status) {
+        const statusLabels = {
+          todo: 'À faire',
+          inprogress: 'En cours',
+          ordering: 'En commande',
+          completed: 'Terminée',
+          cancelled: 'Annulée'
+        };
+        historyComment = `Statut changé de "${statusLabels[currentIntervention?.status] || 'Inconnu'}" à "${statusLabels[updates.status]}"`;
+        changedFields.push('status');
+      } else if (updates.assignedTo && updates.assignedTo !== currentIntervention?.assignedTo) {
+        historyComment = `Réassignée à ${updates.assignedToName || 'un technicien'}`;
+        changedFields.push('assignedTo');
+      } else if (updates.techComment && updates.techComment !== currentIntervention?.techComment) {
+        historyComment = 'Commentaire technicien mis à jour';
+        changedFields.push('techComment');
+      } else if (updates.priority && updates.priority !== currentIntervention?.priority) {
+        historyComment = `Priorité changée à "${updates.priority}"`;
+        changedFields.push('priority');
+      } else if (newPhotoUrls.length > 0) {
+        historyComment = `${newPhotoUrls.length} photo(s) ajoutée(s)`;
+        changedFields.push('photos');
+      } else {
+        historyComment = 'Intervention mise à jour';
+      }
+
+      // ✅ Préparer les données de mise à jour
+      const updateData = {
+        ...updates,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+        updatedByName: user.name || user.email
+      };
+
+      // Ajouter les photos avec arrayUnion
+      if (newPhotoUrls.length > 0) {
+        updateData.photos = arrayUnion(...newPhotoUrls);
+      }
+
+      // ✅ Ajouter l'entrée d'historique avec arrayUnion
+      const historyEntry = createHistoryEntry(
+        updates.status || currentIntervention?.status || 'updated',
+        historyComment,
+        user
+      );
+      historyEntry.fields = changedFields; // Ajouter les champs modifiés
+
+      updateData.history = arrayUnion(historyEntry);
+
+      console.log('📝 Données de mise à jour:', updateData);
+
+      // ✅ Effectuer la mise à jour
+      await updateDoc(interventionRef, updateData);
+
+      console.log('✅ Intervention mise à jour avec succès');
+
+      addToast({ 
+        type: 'success', 
+        message: 'Intervention mise à jour avec succès' 
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Erreur mise à jour intervention:', error);
+      addToast({ 
+        type: 'error', 
+        message: `Erreur: ${error.message}` 
+      });
+      return { success: false, error: error.message };
+    }
+  };
+
+  const handleAddMessage = async (interventionId, messageText) => {
+    try {
+      if (!messageText.trim()) {
+        addToast({ type: 'warning', message: 'Le message ne peut pas être vide' });
+        return { success: false };
+      }
+
+      const message = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        text: messageText.trim(),
+        type: 'text',
+        senderId: user.uid,
+        senderName: user.name || user.email,
+        timestamp: Timestamp.now(), // ✅ Utiliser Timestamp.now()
+        read: false
+      };
+
+      // ✅ Mettre à jour avec arrayUnion pour les messages
+      await updateDoc(doc(db, 'interventions', interventionId), {
+        messages: arrayUnion(message),
+        history: arrayUnion(createHistoryEntry(
+          null,
+          `Nouveau message de ${user.name || user.email}`,
+          user
+        ))
+      });
+
+      console.log('✅ Message ajouté avec succès');
+      
+      addToast({ 
+        type: 'success', 
+        message: 'Message envoyé' 
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Erreur ajout message:', error);
+      addToast({ 
+        type: 'error', 
+        message: 'Erreur lors de l\'envoi du message' 
+      });
+      return { success: false, error: error.message };
+    }
+  };
 
   const handleToggleRoomBlock = async (room, reason) => {
     try {
@@ -534,14 +616,14 @@ const AppContent = () => {
     roomIssueFrequency: []
   };
 
-  const createHistoryEntry = (status, comment, user) => ({
-    id: `history_${Date.now()}`,
-    status,
-    date: serverTimestamp(),
-    by: user.uid,
-    byName: user.name || user.email,
-    comment,
-    fields: [] // Champs modifiés (optionnel)
+  const createHistoryEntry = (status, comment, currentUser) => ({
+    id: `history_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    status: status || 'updated',
+    date: Timestamp.now(), 
+    by: currentUser.uid,
+    byName: currentUser.name || currentUser.email,
+    comment: comment || 'Modification effectuée',
+    fields: [] 
   });
   // ========== RENDU PRINCIPAL ==========
   return (
@@ -694,6 +776,7 @@ const AppContent = () => {
           intervention={selectedIntervention}
           onClose={() => setSelectedIntervention(null)}
           onUpdateIntervention={handleUpdateIntervention}
+          onAddMessage={handleAddMessage} // ✅ AJOUT
           onToggleRoomBlock={handleToggleRoomBlock}
           user={user}
         />
