@@ -1,6 +1,12 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Calendar, User, MapPin, FileText, Package, MessageSquare, Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, Loader2, Home, Lock, Unlock } from 'lucide-react';
+import { 
+  X, Calendar, User, MapPin, FileText, Package, MessageSquare, 
+  Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, 
+  ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, 
+  Loader2, Home, Lock, Unlock, Edit3
+} from 'lucide-react';
 import RoomBlockingModal from '../Rooms/RoomBlockingModal';
+
 // ✅ FONCTION HELPER POUR FORMATER LES TIMESTAMPS
 const formatTimestamp = (timestamp) => {
   try {
@@ -81,7 +87,8 @@ const InterventionDetailModal = ({
   onRemoveSupply,
   onToggleSupplyStatus,
   onToggleRoomBlock,
-  blockedRooms = []
+  blockedRooms = [],
+  onAddLocation
 }) => {
   const [activeTab, setActiveTab] = useState('details');
   const [newMessage, setNewMessage] = useState('');
@@ -91,36 +98,44 @@ const InterventionDetailModal = ({
   const [previewPhotos, setPreviewPhotos] = useState([]);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRoomBlockModalOpen, setIsRoomBlockModalOpen] = useState(false);
   
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-   const [isRoomBlockModalOpen, setIsRoomBlockModalOpen] = useState(false);
-
-  // ✅ AJOUT : Vérifier si la chambre est bloquée
+  // ✅ SIMPLIFIÉ : Calculer directement si la chambre est bloquée
   const isCurrentRoomBlocked = useMemo(() => {
-    return blockedRooms.some(br => 
-      br.room === intervention?.location && br.blocked
-    );
+    if (!intervention?.location || !blockedRooms?.length) return false;
+    
+    const blockedRoom = blockedRooms.find(br => br.room === intervention.location);
+    
+    console.log('🔍 Calcul isCurrentRoomBlocked:', {
+      room: intervention.location,
+      blockedRoom,
+      blocked: blockedRoom?.blocked,
+      result: blockedRoom?.blocked === true
+    });
+    
+    return blockedRoom?.blocked === true;
   }, [blockedRooms, intervention?.location]);
 
-  // ✅ AJOUT : Handler pour bloquer/débloquer
-  const handleToggleRoomBlock = async (room, reason) => {
-    if (onToggleRoomBlock) {
-      const result = await onToggleRoomBlock(room, reason);
-      if (result?.success) {
-        setIsRoomBlockModalOpen(false);
-      }
-      return result;
-    }
-    return { success: false };
-  };
+  // ✅ SIMPLIFIÉ : Récupérer les infos de la chambre bloquée
+  const currentBlockedRoom = useMemo(() => {
+    if (!intervention?.location || !isCurrentRoomBlocked) return null;
+    return blockedRooms.find(br => br.room === intervention.location && br.blocked === true);
+  }, [blockedRooms, intervention?.location, isCurrentRoomBlocked]);
 
+  // ✅ Scroll auto vers les nouveaux messages
   useEffect(() => {
     if (activeTab === 'messages') {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [activeTab, intervention?.messages]);
+
+  // ✅ Synchroniser techComment avec l'intervention
+  useEffect(() => {
+    setTechComment(intervention?.techComment || '');
+  }, [intervention?.techComment]);
 
   // ✅ Récupérer les informations du technicien assigné
   const assignedUser = users.find(u => u.id === intervention?.assignedTo);
@@ -151,6 +166,30 @@ const InterventionDetailModal = ({
     return priority?.name || value;
   };
 
+  // ✅ SIMPLIFIÉ : Handler qui laisse le parent gérer la mise à jour
+  const handleToggleRoomBlock = async (room, reason) => {
+    console.log('🔧 handleToggleRoomBlock appelé:', { room, reason, isCurrentRoomBlocked });
+    
+    if (onToggleRoomBlock) {
+      const result = await onToggleRoomBlock(room, reason);
+      
+      console.log('📥 Résultat de onToggleRoomBlock:', result);
+      
+      if (result?.success) {
+        // ✅ Fermer le modal - le parent va mettre à jour blockedRooms via Firebase
+        setIsRoomBlockModalOpen(false);
+        
+        console.log('✅ Modal fermé, attente de la mise à jour Firebase...');
+      } else {
+        console.warn('⚠️ Échec du toggle:', result);
+      }
+      
+      return result;
+    }
+    return { success: false };
+  };
+
+  // ✅ Gestion des photos
   const handlePhotoSelect = (e) => {
     const files = Array.from(e.target.files);
     setSelectedPhotos(prev => [...prev, ...files]);
@@ -169,6 +208,7 @@ const InterventionDetailModal = ({
     setPreviewPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
+  // ✅ Envoi de message
   const handleSendMessage = async () => {
     if (!newMessage.trim() && selectedPhotos.length === 0) return;
 
@@ -189,6 +229,7 @@ const InterventionDetailModal = ({
     }
   };
 
+  // ✅ Mise à jour du statut
   const handleUpdateStatus = async (newStatus) => {
     setIsSubmitting(true);
     try {
@@ -198,6 +239,7 @@ const InterventionDetailModal = ({
     }
   };
 
+  // ✅ Mise à jour du commentaire technicien
   const handleUpdateTechComment = async () => {
     if (techComment === intervention?.techComment) return;
     
@@ -209,6 +251,7 @@ const InterventionDetailModal = ({
     }
   };
 
+  // ✅ Ajout de photos supplémentaires
   const handleAddPhotos = async () => {
     if (selectedPhotos.length === 0) return;
     
@@ -225,18 +268,20 @@ const InterventionDetailModal = ({
     }
   };
 
+  // ✅ Gestion des fournitures
   const handleAddSupply = () => {
     if (!newSupply.name.trim()) return;
     onAddSupply(newSupply);
     setNewSupply({ name: '', quantity: '', unit: 'pièce' });
   };
 
+  // ✅ Configuration des statuts
   const statusConfig = {
-    todo: { label: 'À faire', color: 'bg-gray-100 text-gray-800', icon: Clock },
-    inprogress: { label: 'En cours', color: 'bg-blue-100 text-blue-800', icon: Wrench },
-    ordering: { label: 'En commande', color: 'bg-orange-100 text-orange-800', icon: Package },
-    completed: { label: 'Terminée', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
-    cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-800', icon: X }
+    todo: { label: 'À faire', color: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', icon: Clock },
+    inprogress: { label: 'En cours', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300', icon: Wrench },
+    ordering: { label: 'En commande', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300', icon: Package },
+    completed: { label: 'Terminée', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300', icon: CheckCircle2 },
+    cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300', icon: X }
   };
 
   const currentStatus = statusConfig[intervention?.status] || statusConfig.todo;
@@ -245,10 +290,10 @@ const InterventionDetailModal = ({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700 dark:to-gray-800">
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+        {/* ========== HEADER ========== */}
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700 dark:to-gray-800 flex-shrink-0">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white truncate">
               {intervention?.missionSummary || 'Intervention'}
             </h2>
             <div className="flex items-center gap-4 mt-2 flex-wrap">
@@ -262,8 +307,8 @@ const InterventionDetailModal = ({
                   Chambre bloquée
                 </span>
               )}
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                <Calendar className="w-4 h-4 inline mr-1" />
+              <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                <Calendar className="w-4 h-4" />
                 {formatShortDate(intervention?.createdAt)}
               </span>
               {intervention?.roomType && (
@@ -274,14 +319,17 @@ const InterventionDetailModal = ({
               )}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+          <button 
+            onClick={onClose} 
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0 ml-4"
+          >
             <X className="w-6 h-6 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-          <div className="flex px-6">
+        {/* ========== TABS ========== */}
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-shrink-0">
+          <div className="flex px-6 overflow-x-auto">
             {[
               { id: 'details', label: 'Détails', icon: FileText },
               { id: 'messages', label: 'Messages', icon: MessageSquare, badge: intervention?.messages?.length || 0 },
@@ -293,7 +341,7 @@ const InterventionDetailModal = ({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium transition-colors relative ${
+                  className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium transition-colors relative whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
                       : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:border-gray-300'
@@ -312,10 +360,12 @@ const InterventionDetailModal = ({
           </div>
         </div>
 
-        {/* Content */}
+        {/* ========== CONTENT ========== */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/* TAB DÉTAILS */}
           {activeTab === 'details' && (
             <div className="space-y-6">
+              {/* Gestion de la chambre */}
               {intervention?.roomType === 'chambre' && intervention?.location && (
                 <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
                   <div className="flex items-center justify-between">
@@ -358,20 +408,20 @@ const InterventionDetailModal = ({
                       </button>
                     )}
                   </div>
-                  
-                  {/* Info sur le blocage si bloquée */}
-                  {isCurrentRoomBlocked && blockedRooms.find(br => br.room === intervention.location) && (
+                  {/* ✅ Utiliser directement blockedRooms */}
+                  {isCurrentRoomBlocked && currentBlockedRoom && (
                     <div className="mt-3 p-3 bg-white dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800">
                       <p className="text-sm text-amber-800 dark:text-amber-200">
-                        <strong>Raison :</strong> {blockedRooms.find(br => br.room === intervention.location)?.reason}
+                        <strong>Raison :</strong> {currentBlockedRoom.reason}
                       </p>
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Bloquée par {blockedRooms.find(br => br.room === intervention.location)?.blockedByName}
+                        Bloquée par {currentBlockedRoom.blockedByName}
                       </p>
                     </div>
                   )}
                 </div>
               )}
+
               {/* Informations principales */}
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -569,8 +619,9 @@ const InterventionDetailModal = ({
             </div>
           )}
 
+          {/* TAB MESSAGES */}
           {activeTab === 'messages' && (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-[60vh]">
               <div className="flex-1 space-y-4 mb-4 overflow-y-auto">
                 {intervention?.messages?.length > 0 ? (
                   intervention.messages.map((msg, index) => {
@@ -584,6 +635,19 @@ const InterventionDetailModal = ({
                             <div className="text-xs font-medium mb-1 opacity-75">{msg.senderName}</div>
                           )}
                           <div className="whitespace-pre-wrap">{msg.text}</div>
+                          {msg.photos && msg.photos.length > 0 && (
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              {msg.photos.map((photo, idx) => (
+                                <img 
+                                  key={idx}
+                                  src={photo} 
+                                  alt={`Photo ${idx + 1}`}
+                                  className="rounded cursor-pointer hover:opacity-90"
+                                  onClick={() => window.open(photo, '_blank')}
+                                />
+                              ))}
+                            </div>
+                          )}
                           <div className={`text-xs mt-1 ${isOwn ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
                             {formatTimestamp(msg.timestamp)}
                           </div>
@@ -779,15 +843,18 @@ const InterventionDetailModal = ({
           )}
         </div>
       </div>
+      {/* ✅ Modal de blocage */}
       {isRoomBlockModalOpen && intervention?.location && (
         <RoomBlockingModal
           isOpen={isRoomBlockModalOpen}
           onClose={() => setIsRoomBlockModalOpen(false)}
           onConfirm={handleToggleRoomBlock}
           defaultRoom={intervention.location}
-          defaultReason={blockedRooms.find(br => br.room === intervention.location)?.reason || ''}
+          defaultReason={currentBlockedRoom?.reason || ''}
           isBlocking={!isCurrentRoomBlocked}
           blockedRooms={blockedRooms}
+          locations={dropdowns.locations}
+          onAddLocation={onAddLocation}
         />
       )}
     </div>

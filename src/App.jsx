@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider, useToast } from './contexts/ToastContext';
@@ -164,10 +163,10 @@ const AppContent = () => {
       }
     );
 
-    // Écouter les chambres bloquées
+    // ✅ CORRECTION : Écouter TOUTES les chambres bloquées (pas de filtre where)
     const blockedRoomsQuery = query(
       collection(db, 'blockedRooms'),
-      where('blocked', '==', true)
+      orderBy('blockedAt', 'desc')
     );
 
     const unsubBlockedRooms = onSnapshot(
@@ -175,11 +174,17 @@ const AppContent = () => {
       (snapshot) => {
         const blockedRoomsData = [];
         snapshot.forEach((doc) => {
+          const data = doc.data();
           blockedRoomsData.push({
             id: doc.id,
-            ...doc.data()
+            ...data,
+            // ✅ Convertir les Timestamps Firebase en Date
+            blockedAt: data.blockedAt?.toDate?.() || data.blockedAt,
+            unblockedAt: data.unblockedAt?.toDate?.() || data.unblockedAt
           });
         });
+        
+        console.log('🔄 Firebase - Mise à jour blockedRooms:', blockedRoomsData);
         setBlockedRooms(blockedRoomsData);
       },
       (error) => {
@@ -369,13 +374,18 @@ const AppContent = () => {
     }
   };
 
+  // ✅ CORRECTION COMPLÈTE : Simplifier handleToggleRoomBlock
   const handleToggleRoomBlock = async (room, reason) => {
     try {
-      // Vérifier si la chambre est déjà bloquée
-      const existingBlock = blockedRooms.find(br => br.room === room && br.blocked);
+      console.log('🔧 App - handleToggleRoomBlock appelé:', { room, reason });
+      
+      // Chercher si la chambre est déjà bloquée (avec blocked === true)
+      const existingBlock = blockedRooms.find(br => br.room === room && br.blocked === true);
 
       if (existingBlock) {
-        // Débloquer
+        // ========== DÉBLOQUER ==========
+        console.log('🔓 Déblocage de la chambre:', room);
+        
         await updateDoc(doc(db, 'blockedRooms', existingBlock.id), {
           blocked: false,
           unblockedAt: serverTimestamp(),
@@ -389,15 +399,19 @@ const AppContent = () => {
           message: `La chambre ${room} a été débloquée`
         });
       } else {
-        // Bloquer
-        await addDoc(collection(db, 'blockedRooms'), {
+        // ========== BLOQUER ==========
+        console.log('🔒 Blocage de la chambre:', room);
+        
+        const newBlock = {
           room,
           reason,
           blocked: true,
           blockedAt: serverTimestamp(),
           blockedBy: user.uid,
           blockedByName: user.name || user.email
-        });
+        };
+
+        await addDoc(collection(db, 'blockedRooms'), newBlock);
 
         addToast({
           type: 'success',
@@ -406,7 +420,11 @@ const AppContent = () => {
         });
       }
 
+      // ✅ Retourner simplement success
+      // Firebase va mettre à jour blockedRooms via onSnapshot
+      console.log('✅ Opération réussie, Firebase va notifier le changement');
       return { success: true };
+      
     } catch (error) {
       console.error('❌ Erreur blocage chambre:', error);
       addToast({
@@ -416,6 +434,10 @@ const AppContent = () => {
       });
       return { success: false, error: error.message };
     }
+  };
+
+  const handleAddDropdownItem = async (locationData) => {
+    return await addItem('locations', locationData);
   };
 
   // ✅ Handlers utilisateurs
@@ -651,6 +673,8 @@ const AppContent = () => {
                 interventions={interventions}
                 onToggleRoomBlock={handleToggleRoomBlock}
                 onInterventionClick={handleInterventionClick}
+                dropdowns={data}
+                onAddLocation={handleAddDropdownItem}
               />
             )}
           </div>
@@ -862,7 +886,11 @@ const AppContent = () => {
             }
           }}
           onToggleRoomBlock={handleToggleRoomBlock}
+          onAddLocation={handleAddDropdownItem}
           user={user}
+          users={users}
+          dropdowns={data}
+          blockedRooms={blockedRooms}
         />
       )}
 

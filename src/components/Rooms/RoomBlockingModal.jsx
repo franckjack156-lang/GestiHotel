@@ -1,12 +1,15 @@
 // src/components/Rooms/RoomBlockingModal.jsx
 import React, { useState } from 'react';
 import { Lock, Unlock, AlertCircle, X } from 'lucide-react';
+import SmartLocationField from '../common/SmartLocationField';
 
 /**
  * Modal pour bloquer/débloquer une chambre
  * Peut être utilisé depuis :
  * - La fiche intervention (avec chambre pré-remplie)
  * - La vue chambres (chambre manuelle)
+ * 
+ * ✅ AMÉLIORATION : Utilise SmartLocationField pour les suggestions intelligentes
  */
 const RoomBlockingModal = ({ 
   isOpen, 
@@ -15,7 +18,9 @@ const RoomBlockingModal = ({
   defaultRoom = '',
   defaultReason = '',
   isBlocking = true, // true = bloquer, false = débloquer
-  blockedRooms = []
+  blockedRooms = [],
+  locations = [], // ✅ NOUVEAU : Liste des localisations existantes
+  onAddLocation // ✅ NOUVEAU : Fonction pour ajouter une nouvelle localisation
 }) => {
   const [room, setRoom] = useState(defaultRoom);
   const [reason, setReason] = useState(defaultReason);
@@ -37,13 +42,27 @@ const RoomBlockingModal = ({
     setIsSubmitting(true);
 
     try {
+      console.log('🚀 RoomBlockingModal - Appel de onConfirm:', { 
+        room: room.trim(), 
+        reason: reason.trim(),
+        isBlocking 
+      });
+      
       const result = await onConfirm(room.trim(), reason.trim());
       
-      if (result.success) {
+      console.log('📥 RoomBlockingModal - Résultat reçu:', result);
+      
+      if (result?.success) {
         onClose();
         setRoom('');
         setReason('');
+      } else {
+        console.error('❌ RoomBlockingModal - Échec:', result);
+        alert(result?.message || 'Une erreur est survenue');
       }
+    } catch (error) {
+      console.error('❌ RoomBlockingModal - Erreur:', error);
+      alert('Une erreur est survenue lors de l\'opération');
     } finally {
       setIsSubmitting(false);
     }
@@ -51,9 +70,9 @@ const RoomBlockingModal = ({
 
   if (!isOpen) return null;
 
-  // Vérifier si la chambre est déjà bloquée
+  // ✅ CORRECTION : Vérifier si la chambre est déjà bloquée avec blocked === true
   const isRoomBlocked = blockedRooms.some(br => 
-    br.room === room && br.blocked
+    br.room === room && br.blocked === true
   );
 
   return (
@@ -96,20 +115,32 @@ const RoomBlockingModal = ({
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Numéro de chambre */}
+          {/* Numéro de chambre avec suggestions intelligentes */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Numéro de chambre *
             </label>
-            <input
-              type="text"
-              value={room}
-              onChange={(e) => setRoom(e.target.value)}
-              placeholder="Ex: 206, Suite 305..."
-              disabled={!!defaultRoom || isSubmitting}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-              required
-            />
+            
+            {/* ✅ SI chambre pré-remplie (depuis fiche intervention) : affichage simple */}
+            {defaultRoom ? (
+              <input
+                type="text"
+                value={room}
+                disabled
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700/50 text-gray-900 dark:text-white opacity-75 cursor-not-allowed"
+              />
+            ) : (
+              /* ✅ SI pas de chambre pré-remplie : utiliser SmartLocationField */
+              <SmartLocationField
+                value={room}
+                onChange={(value) => setRoom(value)}
+                locations={locations}
+                blockedRooms={blockedRooms}
+                onAddLocation={onAddLocation}
+                required={true}
+                placeholder="Ex: 206, Suite 305..."
+              />
+            )}
           </div>
 
           {/* Alerte si chambre déjà bloquée */}

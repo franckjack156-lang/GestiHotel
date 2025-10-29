@@ -13,49 +13,62 @@ import RoomBlockingModal from './RoomBlockingModal';
  * - Bouton "Bloquer une chambre" dans le header
  * - Modal de blocage accessible depuis la liste
  * - Support du blocage sans intervention
+ * - Affichage de TOUTES les chambres ou seulement les bloquées
+ * - Recherche opérationnelle par nom de chambre
+ * - Récupération des chambres depuis dropdowns.locations
  */
 const RoomsManagementView = ({ 
   blockedRooms = [],
   interventions = [],
   onToggleRoomBlock,
-  onInterventionClick
+  onInterventionClick,
+  dropdowns = {},
+  onAddLocation
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all'); // 'all' ou 'blocked'
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all');
   
-  // ✅ NOUVEAUX ÉTATS pour le modal
+  // États pour le modal
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
   const [blockModalMode, setBlockModalMode] = useState('block');
   const [blockModalRoom, setBlockModalRoom] = useState('');
 
-  // Extraire toutes les chambres uniques
+  // ✅ NOUVELLE LOGIQUE : Récupérer TOUTES les chambres depuis dropdowns.locations
   const allRooms = useMemo(() => {
-    const roomsSet = new Set();
+    const roomsMap = new Map();
+    const locations = dropdowns?.locations || [];
     
+    // 1. Créer une map des chambres bloquées pour accès rapide
+    const blockedRoomsMap = new Map();
     blockedRooms.forEach(br => {
-      if (br.room) roomsSet.add(br.room);
-    });
-    
-    interventions.forEach(i => {
-      if (i.location && i.roomType === 'chambre') {
-        roomsSet.add(i.location);
+      if (br.room && br.blocked === true) {
+        // Ne stocker QUE les chambres réellement bloquées (blocked === true)
+        blockedRoomsMap.set(br.room, br);
       }
     });
     
-    return Array.from(roomsSet).map(roomName => {
-      const blockInfo = blockedRooms.find(br => br.room === roomName && br.blocked);
+    // 2. Parcourir toutes les chambres de la liste déroulante
+    locations.forEach(location => {
+      const roomName = location.value || location;
+      if (!roomName) return;
+      
+      // Récupérer les interventions de cette chambre
       const roomInterventions = interventions.filter(i => i.location === roomName);
       const activeInterventions = roomInterventions.filter(i => 
         i.status === 'todo' || i.status === 'inprogress' || i.status === 'ordering'
       );
       
-      return {
+      // Vérifier si la chambre est bloquée (présente dans la map = forcément bloquée)
+      const blockData = blockedRoomsMap.get(roomName);
+      const isBlocked = !!blockData; // Si présente dans la map, alors bloquée
+      
+      roomsMap.set(roomName, {
         name: roomName,
-        isBlocked: !!blockInfo,
-        blockInfo: blockInfo || null,
+        isBlocked: isBlocked,
+        blockInfo: isBlocked ? blockData : null,
         totalInterventions: roomInterventions.length,
         activeInterventions: activeInterventions.length,
         lastIntervention: roomInterventions.length > 0 
@@ -65,34 +78,62 @@ const RoomsManagementView = ({
               return dateB - dateA;
             })[0]
           : null
-      };
-    }).sort((a, b) => {
-      if (a.isBlocked && !b.isBlocked) return -1;
-      if (!a.isBlocked && b.isBlocked) return 1;
+      });
+    });
+    
+    // 3. Ajouter les chambres qui ont des interventions mais ne sont pas dans la liste déroulante
+    interventions.forEach(intervention => {
+      if (intervention.location && !roomsMap.has(intervention.location)) {
+        const roomInterventions = interventions.filter(i => i.location === intervention.location);
+        const activeInterventions = roomInterventions.filter(i => 
+          i.status === 'todo' || i.status === 'inprogress' || i.status === 'ordering'
+        );
+        
+        const blockData = blockedRoomsMap.get(intervention.location);
+        const isBlocked = !!blockData; // Si présente dans la map, alors bloquée
+        
+        roomsMap.set(intervention.location, {
+          name: intervention.location,
+          isBlocked: isBlocked,
+          blockInfo: isBlocked ? blockData : null,
+          totalInterventions: roomInterventions.length,
+          activeInterventions: activeInterventions.length,
+          lastIntervention: roomInterventions.sort((a, b) => {
+            const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+            const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+            return dateB - dateA;
+          })[0]
+        });
+      }
+    });
+    
+    // Convertir en tableau et trier
+    return Array.from(roomsMap.values()).sort((a, b) => {
       return a.name.localeCompare(b.name, 'fr', { numeric: true });
     });
-  }, [blockedRooms, interventions]);
+  }, [blockedRooms, interventions, dropdowns]);
 
-  // Filtrer les chambres
+  // ✅ NOUVEAU : Filtrer les chambres par statut ET recherche
   const filteredRooms = useMemo(() => {
     let filtered = allRooms;
 
+    // Filtre par statut bloqué/toutes
+    if (filterStatus === 'blocked') {
+      filtered = filtered.filter(room => room.isBlocked);
+    }
+
+    // Filtre par recherche
     if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(room => 
-        room.name.toLowerCase().includes(searchTerm.toLowerCase())
+        room.name.toLowerCase().includes(searchLower)
       );
     }
 
-    if (filterStatus === 'blocked') {
-      filtered = filtered.filter(room => room.isBlocked);
-    } else if (filterStatus === 'available') {
-      filtered = filtered.filter(room => !room.isBlocked);
-    }
-
     return filtered;
-  }, [allRooms, searchTerm, filterStatus]);
+  }, [allRooms, filterStatus, searchTerm]);
 
-  // Statistiques
+  // ✅ NOUVELLES Statistiques (basées sur toutes les chambres)
   const stats = {
     total: allRooms.length,
     blocked: allRooms.filter(r => r.isBlocked).length,
@@ -121,7 +162,7 @@ const RoomsManagementView = ({
     });
   }, [selectedRoom, interventions, historyFilter]);
 
-  // ✅ NOUVEAU : Handler pour ouvrir le modal de blocage
+  // Handler pour ouvrir le modal de blocage
   const handleOpenBlockModal = (room = null, mode = 'block') => {
     if (room) {
       setBlockModalRoom(room.name);
@@ -133,7 +174,7 @@ const RoomsManagementView = ({
     setIsBlockModalOpen(true);
   };
 
-  // ✅ NOUVEAU : Handler pour bloquer/débloquer
+  // Handler pour bloquer/débloquer
   const handleToggleBlock = async (roomName, reason) => {
     if (onToggleRoomBlock) {
       const result = await onToggleRoomBlock(roomName, reason);
@@ -218,7 +259,7 @@ const RoomsManagementView = ({
           </p>
         </div>
 
-        {/* ✅ NOUVEAU : Bouton "Bloquer une chambre" */}
+        {/* Bouton "Bloquer une chambre" */}
         <button
           onClick={() => handleOpenBlockModal(null, 'block')}
           className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2"
@@ -228,33 +269,33 @@ const RoomsManagementView = ({
         </button>
       </div>
 
-      {/* Statistiques */}
+      {/* ✅ NOUVELLES Statistiques */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white">
+        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-4 text-white">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm opacity-90">Total chambres</span>
             <Home size={20} className="opacity-80" />
           </div>
           <p className="text-3xl font-bold">{stats.total}</p>
+          <p className="text-xs opacity-90 mt-1">Dans le système</p>
         </div>
 
         <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-4 text-white">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm opacity-90">Bloquées</span>
+            <span className="text-sm opacity-90">Chambres bloquées</span>
             <Lock size={20} className="opacity-80" />
           </div>
           <p className="text-3xl font-bold">{stats.blocked}</p>
-          {stats.blocked > 0 && (
-            <p className="text-xs opacity-90 mt-1">À débloquer</p>
-          )}
+          <p className="text-xs opacity-90 mt-1">À gérer</p>
         </div>
 
         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-4 text-white">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm opacity-90">Disponibles</span>
-            <CheckCircle size={20} className="opacity-80" />
+            <span className="text-sm opacity-90">Chambres disponibles</span>
+            <Unlock size={20} className="opacity-80" />
           </div>
           <p className="text-3xl font-bold">{stats.available}</p>
+          <p className="text-xs opacity-90 mt-1">Opérationnelles</p>
         </div>
 
         <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-4 text-white">
@@ -263,16 +304,17 @@ const RoomsManagementView = ({
             <AlertCircle size={20} className="opacity-80" />
           </div>
           <p className="text-3xl font-bold">{stats.withActiveInterventions}</p>
+          <p className="text-xs opacity-90 mt-1">En cours</p>
         </div>
       </div>
 
-      {/* Filtres et recherche */}
+      {/* ✅ Filtres et recherche OPÉRATIONNELS */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
           <input
             type="text"
-            placeholder="Rechercher une chambre..."
+            placeholder="Rechercher une chambre par nom..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -282,11 +324,10 @@ const RoomsManagementView = ({
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white min-w-[250px]"
         >
-          <option value="all">Toutes ({stats.total})</option>
-          <option value="blocked">Bloquées ({stats.blocked})</option>
-          <option value="available">Disponibles ({stats.available})</option>
+          <option value="all">Toutes les chambres ({stats.total})</option>
+          <option value="blocked">Chambres bloquées uniquement ({stats.blocked})</option>
         </select>
       </div>
 
@@ -324,27 +365,22 @@ const RoomsManagementView = ({
                       </span>
                     </button>
                     
-                    {/* ✅ NOUVEAU : Bouton rapide pour bloquer/débloquer */}
-                    <button
-                      onClick={() => handleOpenBlockModal(room)}
-                      className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition"
-                      title={room.isBlocked ? 'Débloquer' : 'Bloquer'}
-                    >
-                      {room.isBlocked ? (
-                        <Unlock size={16} className="text-green-600 dark:text-green-400" />
-                      ) : (
-                        <Lock size={16} className="text-red-600 dark:text-red-400" />
-                      )}
-                    </button>
+                    {/* Badge statut */}
+                    {room.isBlocked ? (
+                      <Lock size={16} className="text-red-600 dark:text-red-400 flex-shrink-0" />
+                    ) : (
+                      <Unlock size={16} className="text-green-600 dark:text-green-400 flex-shrink-0" />
+                    )}
                   </div>
 
+                  {/* Info blocage si bloquée */}
                   {room.isBlocked && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-2 mb-2">
                       <p className="text-xs text-red-700 dark:text-red-300 font-medium">
                         🚫 Bloquée
                       </p>
                       <p className="text-xs text-red-600 dark:text-red-400 mt-1 line-clamp-2">
-                        {room.blockInfo?.reason}
+                        {room.blockInfo?.reason || 'Aucune raison spécifiée'}
                       </p>
                     </div>
                   )}
@@ -364,7 +400,9 @@ const RoomsManagementView = ({
                 <div className="text-center py-8">
                   <Home size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                   <p className="text-gray-500 dark:text-gray-400">
-                    Aucune chambre trouvée
+                    {searchTerm.trim() 
+                      ? 'Aucune chambre ne correspond à votre recherche'
+                      : 'Aucune chambre trouvée'}
                   </p>
                 </div>
               )}
@@ -393,7 +431,7 @@ const RoomsManagementView = ({
                     ) : (
                       <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-sm font-medium">
                         <Unlock size={14} />
-                        Disponible
+                        Chambre disponible
                       </span>
                     )}
                     
@@ -403,20 +441,31 @@ const RoomsManagementView = ({
                   </div>
                 </div>
 
-                {/* ✅ Bouton débloquer si bloquée */}
-                {selectedRoom.isBlocked && (
-                  <button
-                    onClick={() => handleOpenBlockModal(selectedRoom, 'unblock')}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2"
-                  >
-                    <Unlock size={18} />
-                    Débloquer
-                  </button>
-                )}
+                {/* Bouton bloquer/débloquer */}
+                <button
+                  onClick={() => handleOpenBlockModal(selectedRoom, selectedRoom.isBlocked ? 'unblock' : 'block')}
+                  className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${
+                    selectedRoom.isBlocked
+                      ? 'bg-green-600 text-white hover:bg-green-700'
+                      : 'bg-red-600 text-white hover:bg-red-700'
+                  }`}
+                >
+                  {selectedRoom.isBlocked ? (
+                    <>
+                      <Unlock size={18} />
+                      Débloquer
+                    </>
+                  ) : (
+                    <>
+                      <Lock size={18} />
+                      Bloquer
+                    </>
+                  )}
+                </button>
               </div>
 
-              {/* Informations de blocage */}
-              {selectedRoom.isBlocked && selectedRoom.blockInfo && (
+              {/* Informations de blocage (si bloquée) */}
+              {selectedRoom.isBlocked && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
                   <h3 className="font-semibold text-red-800 dark:text-red-300 mb-3 flex items-center gap-2">
                     <AlertCircle size={18} />
@@ -426,16 +475,20 @@ const RoomsManagementView = ({
                   <div className="space-y-2 text-sm">
                     <div className="flex items-start gap-2">
                       <span className="text-red-600 dark:text-red-400 font-medium min-w-24">Raison :</span>
-                      <span className="text-red-700 dark:text-red-300">{selectedRoom.blockInfo.reason}</span>
+                      <span className="text-red-700 dark:text-red-300">
+                        {selectedRoom.blockInfo?.reason || 'Aucune raison spécifiée'}
+                      </span>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="text-red-600 dark:text-red-400 font-medium min-w-24">Bloquée par :</span>
-                      <span className="text-red-700 dark:text-red-300">{selectedRoom.blockInfo.blockedByName}</span>
+                      <span className="text-red-700 dark:text-red-300">
+                        {selectedRoom.blockInfo?.blockedByName || 'Inconnu'}
+                      </span>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="text-red-600 dark:text-red-400 font-medium min-w-24">Date :</span>
                       <span className="text-red-700 dark:text-red-300">
-                        {formatDate(selectedRoom.blockInfo.blockedAt)}
+                        {formatDate(selectedRoom.blockInfo?.blockedAt)}
                       </span>
                     </div>
                   </div>
@@ -559,16 +612,17 @@ const RoomsManagementView = ({
           <div className="text-sm text-blue-800 dark:text-blue-200">
             <p className="font-medium mb-2">💡 Fonctionnalités</p>
             <ul className="space-y-1 text-xs">
-              <li>• <strong>Bloquer une chambre libre</strong> : Cliquez sur "Bloquer une chambre" en haut à droite</li>
-              <li>• <strong>Bloquer depuis la liste</strong> : Cliquez sur l'icône 🔒 à côté du nom de la chambre</li>
+              <li>• <strong>Voir toutes les chambres</strong> : Sélectionnez "Toutes les chambres" dans le filtre</li>
+              <li>• <strong>Voir uniquement les bloquées</strong> : Sélectionnez "Chambres bloquées uniquement"</li>
+              <li>• <strong>Rechercher</strong> : Tapez le nom d'une chambre dans la barre de recherche</li>
+              <li>• <strong>Bloquer une chambre</strong> : Cliquez sur "Bloquer une chambre" ou sur l'icône 🔒</li>
               <li>• <strong>Débloquer</strong> : Sélectionnez une chambre bloquée puis cliquez sur "Débloquer"</li>
-              <li>• <strong>Voir l'historique</strong> : Toutes les interventions passées et en cours sont affichées</li>
             </ul>
           </div>
         </div>
       </div>
 
-      {/* ✅ MODAL DE BLOCAGE */}
+      {/* MODAL DE BLOCAGE */}
       {isBlockModalOpen && (
         <RoomBlockingModal
           isOpen={isBlockModalOpen}
@@ -585,6 +639,8 @@ const RoomsManagementView = ({
           }
           isBlocking={blockModalMode === 'block'}
           blockedRooms={blockedRooms}
+          locations={dropdowns?.locations || []}  
+          onAddLocation={onAddLocation}
         />
       )}
     </div>
