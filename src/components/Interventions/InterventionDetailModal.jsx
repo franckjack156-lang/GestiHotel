@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Calendar, User, MapPin, FileText, Package, MessageSquare, Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, Loader2, Home, Lock, Unlock } from 'lucide-react';
 import RoomBlockingModal from '../Rooms/RoomBlockingModal';
 // ✅ FONCTION HELPER POUR FORMATER LES TIMESTAMPS

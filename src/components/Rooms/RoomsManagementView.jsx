@@ -2,17 +2,17 @@ import React, { useState, useMemo } from 'react';
 import { 
   Home, Search, Filter, MapPin, AlertCircle, Clock, 
   CheckCircle, XCircle, Lock, Unlock, Calendar, Eye,
-  TrendingUp, BarChart3, Info, ExternalLink
+  TrendingUp, BarChart3, Info, ExternalLink, Plus
 } from 'lucide-react';
 import RoomBlockingModal from './RoomBlockingModal';
+
 /**
  * RoomsManagementView - Gestion complète des chambres
  * 
- * Props requises depuis App.jsx :
- * - blockedRooms: Array depuis votre state (avec room, blocked, reason, blockedAt, blockedByName)
- * - interventions: Array depuis votre state (avec location, status, priority, missionSummary, createdAt)
- * - onToggleRoomBlock: Function pour débloquer (room, reason) => Promise
- * - onInterventionClick: Function pour ouvrir détail intervention
+ * NOUVEAUTÉS :
+ * - Bouton "Bloquer une chambre" dans le header
+ * - Modal de blocage accessible depuis la liste
+ * - Support du blocage sans intervention
  */
 const RoomsManagementView = ({ 
   blockedRooms = [],
@@ -21,29 +21,30 @@ const RoomsManagementView = ({
   onInterventionClick
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all'); // all, blocked, available
+  const [filterStatus, setFilterStatus] = useState('all');
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [historyFilter, setHistoryFilter] = useState('all'); // all, completed, inprogress
+  const [historyFilter, setHistoryFilter] = useState('all');
+  
+  // ✅ NOUVEAUX ÉTATS pour le modal
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
   const [blockModalMode, setBlockModalMode] = useState('block');
-  // Extraire toutes les chambres uniques depuis les interventions et blocages
+  const [blockModalRoom, setBlockModalRoom] = useState('');
+
+  // Extraire toutes les chambres uniques
   const allRooms = useMemo(() => {
     const roomsSet = new Set();
     
-    // Ajouter les chambres bloquées
     blockedRooms.forEach(br => {
       if (br.room) roomsSet.add(br.room);
     });
     
-    // Ajouter les chambres avec interventions (uniquement les "chambre")
     interventions.forEach(i => {
       if (i.location && i.roomType === 'chambre') {
         roomsSet.add(i.location);
       }
     });
     
-    // Convertir en objets avec infos
     return Array.from(roomsSet).map(roomName => {
       const blockInfo = blockedRooms.find(br => br.room === roomName && br.blocked);
       const roomInterventions = interventions.filter(i => i.location === roomName);
@@ -66,7 +67,6 @@ const RoomsManagementView = ({
           : null
       };
     }).sort((a, b) => {
-      // Tri : bloquées d'abord, puis par nom
       if (a.isBlocked && !b.isBlocked) return -1;
       if (!a.isBlocked && b.isBlocked) return 1;
       return a.name.localeCompare(b.name, 'fr', { numeric: true });
@@ -77,14 +77,12 @@ const RoomsManagementView = ({
   const filteredRooms = useMemo(() => {
     let filtered = allRooms;
 
-    // Filtre par recherche
     if (searchTerm.trim()) {
       filtered = filtered.filter(room => 
         room.name.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
-    // Filtre par statut
     if (filterStatus === 'blocked') {
       filtered = filtered.filter(room => room.isBlocked);
     } else if (filterStatus === 'available') {
@@ -123,23 +121,36 @@ const RoomsManagementView = ({
     });
   }, [selectedRoom, interventions, historyFilter]);
 
-  const handleUnblockRoom = async (room) => {
-    if (!room.blockInfo) return;
-    
-    if (confirm(`Débloquer "${room.name}" ?\n\nRaison du blocage : ${room.blockInfo.reason}`)) {
-      if (onToggleRoomBlock) {
-        await onToggleRoomBlock(room.name, room.blockInfo.reason);
-      }
+  // ✅ NOUVEAU : Handler pour ouvrir le modal de blocage
+  const handleOpenBlockModal = (room = null, mode = 'block') => {
+    if (room) {
+      setBlockModalRoom(room.name);
+      setBlockModalMode(room.isBlocked ? 'unblock' : 'block');
+    } else {
+      setBlockModalRoom('');
+      setBlockModalMode('block');
     }
+    setIsBlockModalOpen(true);
+  };
+
+  // ✅ NOUVEAU : Handler pour bloquer/débloquer
+  const handleToggleBlock = async (roomName, reason) => {
+    if (onToggleRoomBlock) {
+      const result = await onToggleRoomBlock(roomName, reason);
+      if (result?.success) {
+        setIsBlockModalOpen(false);
+        setBlockModalRoom('');
+      }
+      return result;
+    }
+    return { success: false };
   };
 
   const formatDate = (date) => {
     if (!date) return 'Date inconnue';
-    
     try {
       const d = date instanceof Date ? date : new Date(date);
       if (isNaN(d.getTime())) return 'Date invalide';
-      
       return d.toLocaleDateString('fr-FR', {
         day: '2-digit',
         month: 'long',
@@ -154,11 +165,9 @@ const RoomsManagementView = ({
 
   const formatShortDate = (date) => {
     if (!date) return 'Date inconnue';
-    
     try {
       const d = date instanceof Date ? date : new Date(date);
       if (isNaN(d.getTime())) return 'Date invalide';
-      
       return d.toLocaleDateString('fr-FR', {
         day: '2-digit',
         month: 'short',
@@ -199,13 +208,24 @@ const RoomsManagementView = ({
   return (
     <div className="space-y-6">
       {/* En-tête */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          Gestion des Chambres
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">
-          Vue d'ensemble et gestion des chambres et suites
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+            Gestion des Chambres
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Vue d'ensemble et gestion des chambres et suites
+          </p>
+        </div>
+
+        {/* ✅ NOUVEAU : Bouton "Bloquer une chambre" */}
+        <button
+          onClick={() => handleOpenBlockModal(null, 'block')}
+          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2"
+        >
+          <Lock size={18} />
+          Bloquer une chambre
+        </button>
       </div>
 
       {/* Statistiques */}
@@ -282,31 +302,40 @@ const RoomsManagementView = ({
             
             <div className="space-y-2 max-h-[600px] overflow-y-auto">
               {filteredRooms.map((room) => (
-                <button
+                <div
                   key={room.name}
-                  onClick={() => {
-                    setSelectedRoom(room);
-                    setShowHistory(true);
-                  }}
-                  className={`w-full text-left p-4 rounded-lg border-2 transition ${
+                  className={`p-4 rounded-lg border-2 transition ${
                     selectedRoom?.name === room.name
                       ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30'
                       : 'border-gray-200 dark:border-gray-600 hover:border-indigo-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedRoom(room);
+                        setShowHistory(true);
+                      }}
+                      className="flex items-center gap-2 flex-1 text-left"
+                    >
                       <Home size={18} className="text-gray-500 flex-shrink-0" />
                       <span className="font-medium text-gray-800 dark:text-white">
                         {room.name}
                       </span>
-                    </div>
+                    </button>
                     
-                    {room.isBlocked ? (
-                      <Lock size={16} className="text-red-600 dark:text-red-400 flex-shrink-0" />
-                    ) : (
-                      <Unlock size={16} className="text-green-600 dark:text-green-400 flex-shrink-0" />
-                    )}
+                    {/* ✅ NOUVEAU : Bouton rapide pour bloquer/débloquer */}
+                    <button
+                      onClick={() => handleOpenBlockModal(room)}
+                      className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition"
+                      title={room.isBlocked ? 'Débloquer' : 'Bloquer'}
+                    >
+                      {room.isBlocked ? (
+                        <Unlock size={16} className="text-green-600 dark:text-green-400" />
+                      ) : (
+                        <Lock size={16} className="text-red-600 dark:text-red-400" />
+                      )}
+                    </button>
                   </div>
 
                   {room.isBlocked && (
@@ -328,7 +357,7 @@ const RoomsManagementView = ({
                       </span>
                     )}
                   </div>
-                </button>
+                </div>
               ))}
 
               {filteredRooms.length === 0 && (
@@ -374,9 +403,10 @@ const RoomsManagementView = ({
                   </div>
                 </div>
 
+                {/* ✅ Bouton débloquer si bloquée */}
                 {selectedRoom.isBlocked && (
                   <button
-                    onClick={() => handleUnblockRoom(selectedRoom)}
+                    onClick={() => handleOpenBlockModal(selectedRoom, 'unblock')}
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2"
                   >
                     <Unlock size={18} />
@@ -529,14 +559,34 @@ const RoomsManagementView = ({
           <div className="text-sm text-blue-800 dark:text-blue-200">
             <p className="font-medium mb-2">💡 Fonctionnalités</p>
             <ul className="space-y-1 text-xs">
-              <li>• <strong>Débloquer une chambre</strong> : Cliquez sur une chambre bloquée puis sur "Débloquer"</li>
+              <li>• <strong>Bloquer une chambre libre</strong> : Cliquez sur "Bloquer une chambre" en haut à droite</li>
+              <li>• <strong>Bloquer depuis la liste</strong> : Cliquez sur l'icône 🔒 à côté du nom de la chambre</li>
+              <li>• <strong>Débloquer</strong> : Sélectionnez une chambre bloquée puis cliquez sur "Débloquer"</li>
               <li>• <strong>Voir l'historique</strong> : Toutes les interventions passées et en cours sont affichées</li>
-              <li>• <strong>Filtrer l'historique</strong> : Choisissez entre toutes, en cours ou terminées</li>
-              <li>• <strong>Accéder aux détails</strong> : Cliquez sur une intervention pour voir sa fiche complète</li>
             </ul>
           </div>
         </div>
       </div>
+
+      {/* ✅ MODAL DE BLOCAGE */}
+      {isBlockModalOpen && (
+        <RoomBlockingModal
+          isOpen={isBlockModalOpen}
+          onClose={() => {
+            setIsBlockModalOpen(false);
+            setBlockModalRoom('');
+          }}
+          onConfirm={handleToggleBlock}
+          defaultRoom={blockModalRoom}
+          defaultReason={
+            blockModalMode === 'unblock' && selectedRoom?.blockInfo 
+              ? selectedRoom.blockInfo.reason 
+              : ''
+          }
+          isBlocking={blockModalMode === 'block'}
+          blockedRooms={blockedRooms}
+        />
+      )}
     </div>
   );
 };
