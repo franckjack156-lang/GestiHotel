@@ -29,6 +29,7 @@ import UsersManagementView from './components/Users/UsersManagementView';
 import CalendarView from './components/Planning/CalendarView';
 import ChatView from './components/Chat/ChatView';
 import ExcelImportView from './components/Admin/ExcelImportView';
+import RoomsManagementView from './components/Rooms/RoomsManagementView';
 
 // Modals
 import AuthScreen from './components/Auth/AuthScreen';
@@ -643,6 +644,14 @@ const AppContent = () => {
 
             {currentView === 'excel-import' && user.role === 'superadmin' && (
               <ExcelImportView />
+            )}
+            {currentView === 'rooms' && (
+              <RoomsManagementView
+                blockedRooms={blockedRooms}
+                interventions={interventions}
+                onToggleRoomBlock={handleToggleRoomBlock}
+                onInterventionClick={handleInterventionClick}
+              />
             )}
           </div>
         </main>

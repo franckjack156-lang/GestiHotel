@@ -1,121 +1,34 @@
 import React, { useState } from 'react';
 import { useExcelImport } from '../../hooks/useExcelImport';
 import { useAuth } from '../../contexts/AuthContext';
-
 import { Upload, Download, Trash2, FileSpreadsheet, AlertTriangle, CheckCircle, Loader, Database, RefreshCw, Info, X } from 'lucide-react';
 
-const ExcelImportSystem = () => {
+const ExcelImportView = () => {
+  const { user } = useAuth();
+  const { importData, deleteAllInterventions, downloadTemplate } = useExcelImport(user);
+  
   const [file, setFile] = useState(null);
   const [importing, setImporting] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [results, setResults] = useState(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Télécharger le template Excel
-  const downloadTemplate = () => {
-    const template = `Date,Demandeur,Localisation,Etat,Mission,Commentaires Mission,Intervenant,Commentaire Intervenant,Statut,Type Local,Type Mission,Type Intervention,Priorité
-2024-01-15,Réception,Chambre 101,Libre,Fuite robinet,Le robinet de la salle de bain fuit,Jean Dupont,Réparation effectuée,Terminée,chambre,plomberie,reparation,high
-2024-01-16,Ménage,Suite 205,Bloquée,Climatisation bruyante,Client se plaint du bruit,Marie Martin,En cours de diagnostic,En cours,suite,climatisation,maintenance-preventive,urgent
-2024-01-17,Direction,Couloir Etage 2,Libre,Ampoule grillée,Ampoule du couloir à remplacer,Pierre Durand,,À faire,couloir,electricite,reparation,normal`;
-
-    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'template_interventions.csv';
-    link.click();
-  };
-
   // Gérer la sélection du fichier
   const handleFileSelect = (e) => {
-  const selectedFile = e.target.files[0];
-  if (selectedFile) {
-    const validExtensions = ['.csv', '.xlsx', '.xls'];
-    const extension = selectedFile.name.substring(selectedFile.name.lastIndexOf('.')).toLowerCase();
-    
-    if (validExtensions.includes(extension)) {
-      setFile(selectedFile);
-      setResults(null);
-    } else {
-      alert('Veuillez sélectionner un fichier CSV ou Excel (.xlsx, .xls)');
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      const validExtensions = ['.csv', '.xlsx', '.xls'];
+      const extension = selectedFile.name.substring(selectedFile.name.lastIndexOf('.')).toLowerCase();
+      
+      if (validExtensions.includes(extension)) {
+        setFile(selectedFile);
+        setResults(null);
+      } else {
+        alert('Veuillez sélectionner un fichier CSV ou Excel (.xlsx, .xls)');
+      }
     }
-  }
-};
-
-  // Parser le CSV
-  const parseCSV = (text) => {
-    const lines = text.split('\n').filter(line => line.trim());
-    const headers = lines[0].split(',').map(h => h.trim());
-    
-    const data = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
-      const row = {};
-      headers.forEach((header, index) => {
-        row[header] = values[index] || '';
-      });
-      data.push(row);
-    }
-    
-    return data;
   };
 
-  // Mapper les données Excel vers le format Firestore
-  const mapExcelToFirestore = (row) => {
-    const statusMap = {
-      'À faire': 'todo',
-      'En cours': 'inprogress',
-      'En commande': 'ordering',
-      'Terminée': 'completed',
-      'Annulée': 'cancelled'
-    };
-
-    return {
-      // Informations de base
-      location: row.Localisation || '',
-      roomType: row['Type Local'] || 'chambre',
-      
-      // Mission
-      missionSummary: row.Mission || '',
-      missionComment: row['Commentaires Mission'] || '',
-      missionType: row['Type Mission'] || '',
-      
-      // Intervention
-      interventionType: row['Type Intervention'] || 'reparation',
-      priority: row['Priorité'] || 'normal',
-      status: statusMap[row.Statut] || 'todo',
-      
-      // Assignation
-      assignedToName: row.Intervenant || '',
-      techComment: row['Commentaire Intervenant'] || '',
-      
-      // Créateur
-      creatorName: row.Demandeur || 'Import Excel',
-      
-      // Dates
-      createdAt: row.Date ? new Date(row.Date) : new Date(),
-      
-      // État de la chambre
-      roomBlocked: row.Etat === 'Bloquée',
-      
-      // Métadonnées
-      importedAt: new Date(),
-      importedBy: 'admin',
-      photos: [],
-      messages: [],
-      suppliesNeeded: [],
-      history: [{
-        id: `history_${Date.now()}`,
-        status: statusMap[row.Statut] || 'todo',
-        date: row.Date ? new Date(row.Date).toISOString() : new Date().toISOString(),
-        by: 'import',
-        byName: 'Import Excel',
-        comment: 'Intervention importée depuis Excel'
-      }]
-    };
-  };
-
-  // Importer les données
   const handleImport = async () => {
     if (!file) {
       alert('Veuillez sélectionner un fichier');
@@ -123,62 +36,20 @@ const ExcelImportSystem = () => {
     }
 
     setImporting(true);
-    setProgress(0);
 
     try {
-      // Lire le fichier
-      const text = await file.text();
-      const rawData = parseCSV(text);
+      const result = await importData(file);
       
-      console.log('📊 Données brutes:', rawData);
-      
-      // Simuler l'import (à remplacer par vrai code Firestore)
-      const totalRows = rawData.length;
-      const imported = [];
-      const errors = [];
-      
-      for (let i = 0; i < rawData.length; i++) {
-        const row = rawData[i];
-        
-        try {
-          const interventionData = mapExcelToFirestore(row);
-          
-          // Validation basique
-          if (!interventionData.location || !interventionData.missionSummary) {
-            errors.push({
-              row: i + 2,
-              data: row,
-              error: 'Localisation ou Mission manquante'
-            });
-            continue;
-          }
-          
-          // ICI: Ajouter le code Firebase réel
-          // await addDoc(collection(db, 'interventions'), interventionData);
-          
-          imported.push(interventionData);
-          
-          // Mettre à jour la progression
-          setProgress(Math.round(((i + 1) / totalRows) * 100));
-          
-          // Simuler un délai
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-        } catch (error) {
-          errors.push({
-            row: i + 2,
-            data: row,
-            error: error.message
-          });
-        }
+      if (result.success) {
+        setResults({
+          success: result.imported,
+          errors: result.errors,
+          total: result.total,
+          errorDetails: result.errorDetails || []
+        });
+      } else {
+        alert('Erreur lors de l\'import: ' + result.error);
       }
-      
-      setResults({
-        success: imported.length,
-        errors: errors.length,
-        total: totalRows,
-        errorDetails: errors
-      });
       
     } catch (error) {
       console.error('❌ Erreur import:', error);
@@ -188,27 +59,20 @@ const ExcelImportSystem = () => {
     }
   };
 
-  // Supprimer toutes les données
   const handleDeleteAll = async () => {
     setDeleting(true);
     
     try {
-      // ICI: Ajouter le code Firebase réel pour supprimer
-      // const interventionsRef = collection(db, 'interventions');
-      // const snapshot = await getDocs(interventionsRef);
-      // const batch = writeBatch(db);
-      // snapshot.forEach((doc) => {
-      //   batch.delete(doc.ref);
-      // });
-      // await batch.commit();
+      const result = await deleteAllInterventions();
       
-      // Simuler la suppression
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      alert('✅ Toutes les interventions ont été supprimées');
-      setShowConfirmDelete(false);
-      setResults(null);
-      setFile(null);
+      if (result.success) {
+        alert(`✅ ${result.deleted} intervention(s) supprimée(s)`);
+        setShowConfirmDelete(false);
+        setResults(null);
+        setFile(null);
+      } else {
+        alert('Erreur lors de la suppression: ' + result.error);
+      }
       
     } catch (error) {
       console.error('❌ Erreur suppression:', error);
@@ -241,8 +105,9 @@ const ExcelImportSystem = () => {
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
             <AlertTriangle className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
             <div className="text-sm text-amber-800">
-              <p className="font-semibold mb-1">⚠️ Important</p>
-              <p>Cette opération remplacera TOUTES les interventions existantes. Assurez-vous d'avoir une sauvegarde avant de continuer.</p>
+              <p className="font-semibold mb-1">⚠️ Colonnes obligatoires</p>
+              <p>Date, Demandeur, Type de Local, Intervenant, Statut</p>
+              <p className="text-xs mt-1">Les autres colonnes sont optionnelles</p>
             </div>
           </div>
         </div>
@@ -256,7 +121,7 @@ const ExcelImportSystem = () => {
               <h3 className="font-semibold text-gray-800">1. Télécharger le template</h3>
             </div>
             <p className="text-sm text-gray-600 mb-4">
-              Téléchargez le fichier exemple avec toutes les colonnes nécessaires
+              Téléchargez le fichier exemple avec les 5 colonnes obligatoires
             </p>
             <button
               onClick={downloadTemplate}
@@ -318,7 +183,7 @@ const ExcelImportSystem = () => {
                 Cliquez pour sélectionner un fichier
               </p>
               <p className="text-sm text-gray-500">
-                CSV ou Excel (.xlsx) - Max 10 MB
+                Excel (.xlsx) ou CSV - Max 10 MB
               </p>
             </label>
           </div>
@@ -346,48 +211,6 @@ const ExcelImportSystem = () => {
             </div>
           )}
 
-          {/* Format des colonnes */}
-          <div className="bg-gray-50 rounded-lg p-4 mb-6">
-            <div className="flex items-center gap-2 mb-3">
-              <Info className="text-gray-600" size={18} />
-              <h4 className="font-semibold text-gray-800">Colonnes requises</h4>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Date</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Demandeur</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Localisation</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Etat</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Mission</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Commentaires Mission</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Intervenant</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-green-600" />
-                <span>Statut</span>
-              </div>
-            </div>
-          </div>
-
           {/* Bouton import */}
           <button
             onClick={handleImport}
@@ -397,7 +220,7 @@ const ExcelImportSystem = () => {
             {importing ? (
               <>
                 <Loader className="animate-spin" size={20} />
-                Import en cours... {progress}%
+                Import en cours...
               </>
             ) : (
               <>
@@ -460,9 +283,6 @@ const ExcelImportSystem = () => {
                         Ligne {error.row}
                       </p>
                       <p className="text-red-600">{error.error}</p>
-                      <p className="text-gray-600 text-xs mt-1">
-                        {JSON.stringify(error.data)}
-                      </p>
                     </div>
                   ))}
                 </div>
@@ -522,4 +342,4 @@ const ExcelImportSystem = () => {
   );
 };
 
-export default ExcelImportSystem;
+export default ExcelImportView;

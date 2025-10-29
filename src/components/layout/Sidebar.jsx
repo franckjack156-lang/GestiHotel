@@ -10,7 +10,8 @@ import {
   ChevronRight,
   X,
   Calendar,
-  FileSpreadsheet 
+  FileSpreadsheet,
+  Building2, 
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../hooks/useSettings';
@@ -30,6 +31,7 @@ const Sidebar = ({
   const navigationItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: Home, roles: ['reception', 'technician', 'manager', 'superadmin'] },
     { id: 'interventions', label: 'Interventions', icon: ClipboardList, roles: ['reception', 'technician', 'manager', 'superadmin'] },
+    { id: 'rooms', label: 'Chambres', icon: Building2, roles: ['reception', 'manager', 'superadmin']},
     { id: 'planning', label: 'Planning', icon: Calendar, roles: ['manager', 'superadmin'] },
     { id: 'analytics', label: 'Analytics', icon: BarChart, roles: ['manager', 'superadmin'] },
     { id: 'users', label: 'Gestion utilisateurs', icon: Users, roles: ['superadmin'] },

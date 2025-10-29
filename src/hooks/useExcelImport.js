@@ -162,15 +162,31 @@ export const useExcelImport = (user) => {
   const validateRow = (row, rowNumber) => {
     const errors = [];
 
-    const location = row.Localisation || row.localisation || '';
-    const mission = row.Mission || row.mission || '';
+    // ✅ Champs obligatoires uniquement
+    const date = row.Date || row.date || '';
+    const demandeur = row.Demandeur || row.demandeur || '';
+    const typeLocal = row['Type Local'] || row['type_local'] || row['Type de Local'] || '';
+    const intervenant = row.Intervenant || row.intervenant || '';
+    const statut = row.Statut || row.statut || '';
 
-    if (!location || location.trim() === '') {
-      errors.push(`Ligne ${rowNumber}: Localisation manquante`);
+    if (!date || date.trim() === '') {
+      errors.push(`Ligne ${rowNumber}: La date est obligatoire`);
     }
 
-    if (!mission || mission.trim() === '') {
-      errors.push(`Ligne ${rowNumber}: Mission manquante`);
+    if (!demandeur || demandeur.trim() === '') {
+      errors.push(`Ligne ${rowNumber}: Le demandeur est obligatoire`);
+    }
+
+    if (!typeLocal || typeLocal.trim() === '') {
+      errors.push(`Ligne ${rowNumber}: Le type de local est obligatoire`);
+    }
+
+    if (!intervenant || intervenant.trim() === '') {
+      errors.push(`Ligne ${rowNumber}: L'intervenant est obligatoire`);
+    }
+
+    if (!statut || statut.trim() === '') {
+      errors.push(`Ligne ${rowNumber}: Le statut est obligatoire`);
     }
 
     return errors;
@@ -380,8 +396,12 @@ export const useExcelImport = (user) => {
     setDeleting(true);
 
     try {
+      console.log('🗑️ Démarrage de la suppression...');
+      
       const interventionsRef = collection(db, 'interventions');
       const snapshot = await getDocs(interventionsRef);
+
+      console.log(`📊 ${snapshot.size} interventions trouvées`);
 
       if (snapshot.empty) {
         addToast({
@@ -389,50 +409,75 @@ export const useExcelImport = (user) => {
           title: 'Aucune donnée',
           message: 'Il n\'y a aucune intervention à supprimer'
         });
+        setDeleting(false);
         return { success: true, deleted: 0 };
       }
 
       // Utiliser batch pour supprimer (max 500 par batch)
+      const BATCH_SIZE = 500;
       const batches = [];
-      let batch = writeBatch(db);
-      let count = 0;
+      let currentBatch = writeBatch(db);
+      let operationCount = 0;
+      let totalCount = 0;
 
       snapshot.forEach((document) => {
-        batch.delete(doc(db, 'interventions', document.id));
-        count++;
+        currentBatch.delete(doc(db, 'interventions', document.id));
+        operationCount++;
+        totalCount++;
 
-        if (count % 500 === 0) {
-          batches.push(batch);
-          batch = writeBatch(db);
+        // Si on atteint 500 opérations, créer un nouveau batch
+        if (operationCount === BATCH_SIZE) {
+          batches.push(currentBatch);
+          currentBatch = writeBatch(db);
+          operationCount = 0;
         }
       });
 
-      // Ajouter le dernier batch s'il reste des documents
-      if (count % 500 !== 0) {
-        batches.push(batch);
+      // Ajouter le dernier batch s'il contient des opérations
+      if (operationCount > 0) {
+        batches.push(currentBatch);
       }
 
-      // Exécuter tous les batches
-      await Promise.all(batches.map(b => b.commit()));
+      console.log(`📦 ${batches.length} batch(es) à exécuter`);
+
+      // Exécuter tous les batches séquentiellement pour éviter les problèmes
+      for (let i = 0; i < batches.length; i++) {
+        console.log(`⏳ Exécution batch ${i + 1}/${batches.length}...`);
+        await batches[i].commit();
+      }
+
+      console.log(`✅ ${totalCount} interventions supprimées`);
 
       addToast({
         type: 'success',
         title: 'Suppression réussie',
-        message: `${count} intervention(s) supprimée(s)`
+        message: `${totalCount} intervention(s) supprimée(s)`,
+        duration: 5000
       });
 
-      return { success: true, deleted: count };
+      return { success: true, deleted: totalCount };
 
     } catch (error) {
       console.error('❌ Erreur suppression:', error);
 
+      let errorMessage = 'Erreur lors de la suppression';
+      
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission refusée. Vérifiez vos droits Firestore.';
+      } else if (error.code === 'unavailable') {
+        errorMessage = 'Service temporairement indisponible. Réessayez.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
       addToast({
         type: 'error',
         title: 'Erreur suppression',
-        message: error.message
+        message: errorMessage,
+        duration: 8000
       });
 
-      return { success: false, error: error.message };
+      return { success: false, error: errorMessage };
     } finally {
       setDeleting(false);
     }
