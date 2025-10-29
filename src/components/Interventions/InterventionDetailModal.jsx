@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Calendar, User, MapPin, FileText, Package, MessageSquare, Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, Loader2, Home } from 'lucide-react';
-
+import { X, Calendar, User, MapPin, FileText, Package, MessageSquare, Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, Loader2, Home, Lock, Unlock } from 'lucide-react';
+import RoomBlockingModal from '../Rooms/RoomBlockingModal';
 // ✅ FONCTION HELPER POUR FORMATER LES TIMESTAMPS
 const formatTimestamp = (timestamp) => {
   try {
@@ -80,7 +80,8 @@ const InterventionDetailModal = ({
   onAddSupply,
   onRemoveSupply,
   onToggleSupplyStatus,
-  onToggleRoomBlock
+  onToggleRoomBlock,
+  blockedRooms = []
 }) => {
   const [activeTab, setActiveTab] = useState('details');
   const [newMessage, setNewMessage] = useState('');
@@ -93,6 +94,27 @@ const InterventionDetailModal = ({
   
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
+
+   const [isRoomBlockModalOpen, setIsRoomBlockModalOpen] = useState(false);
+
+  // ✅ AJOUT : Vérifier si la chambre est bloquée
+  const isCurrentRoomBlocked = useMemo(() => {
+    return blockedRooms.some(br => 
+      br.room === intervention?.location && br.blocked
+    );
+  }, [blockedRooms, intervention?.location]);
+
+  // ✅ AJOUT : Handler pour bloquer/débloquer
+  const handleToggleRoomBlock = async (room, reason) => {
+    if (onToggleRoomBlock) {
+      const result = await onToggleRoomBlock(room, reason);
+      if (result?.success) {
+        setIsRoomBlockModalOpen(false);
+      }
+      return result;
+    }
+    return { success: false };
+  };
 
   useEffect(() => {
     if (activeTab === 'messages') {
@@ -234,6 +256,12 @@ const InterventionDetailModal = ({
                 <StatusIcon className="w-4 h-4" />
                 {currentStatus.label}
               </span>
+              {isCurrentRoomBlocked && (
+                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
+                  <Lock size={14} />
+                  Chambre bloquée
+                </span>
+              )}
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 <Calendar className="w-4 h-4 inline mr-1" />
                 {formatShortDate(intervention?.createdAt)}
@@ -288,6 +316,62 @@ const InterventionDetailModal = ({
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'details' && (
             <div className="space-y-6">
+              {intervention?.roomType === 'chambre' && intervention?.location && (
+                <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Home className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                      <div>
+                        <p className="font-semibold text-amber-900 dark:text-amber-100">
+                          Gestion de la chambre {intervention.location}
+                        </p>
+                        <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                          {isCurrentRoomBlocked 
+                            ? '🚫 Cette chambre est actuellement bloquée'
+                            : '✅ Cette chambre est disponible'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Bouton bloquer/débloquer */}
+                    {(user?.role === 'manager' || user?.role === 'superadmin') && (
+                      <button
+                        onClick={() => setIsRoomBlockModalOpen(true)}
+                        className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+                          isCurrentRoomBlocked
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'bg-red-600 hover:bg-red-700 text-white'
+                        }`}
+                      >
+                        {isCurrentRoomBlocked ? (
+                          <>
+                            <Unlock size={16} />
+                            Débloquer
+                          </>
+                        ) : (
+                          <>
+                            <Lock size={16} />
+                            Bloquer
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Info sur le blocage si bloquée */}
+                  {isCurrentRoomBlocked && blockedRooms.find(br => br.room === intervention.location) && (
+                    <div className="mt-3 p-3 bg-white dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800">
+                      <p className="text-sm text-amber-800 dark:text-amber-200">
+                        <strong>Raison :</strong> {blockedRooms.find(br => br.room === intervention.location)?.reason}
+                      </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        Bloquée par {blockedRooms.find(br => br.room === intervention.location)?.blockedByName}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
               {/* Informations principales */}
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -695,6 +779,17 @@ const InterventionDetailModal = ({
           )}
         </div>
       </div>
+      {isRoomBlockModalOpen && intervention?.location && (
+        <RoomBlockingModal
+          isOpen={isRoomBlockModalOpen}
+          onClose={() => setIsRoomBlockModalOpen(false)}
+          onConfirm={handleToggleRoomBlock}
+          defaultRoom={intervention.location}
+          defaultReason={blockedRooms.find(br => br.room === intervention.location)?.reason || ''}
+          isBlocking={!isCurrentRoomBlocked}
+          blockedRooms={blockedRooms}
+        />
+      )}
     </div>
   );
 };

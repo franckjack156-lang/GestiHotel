@@ -4,7 +4,7 @@ import {
   CheckCircle, XCircle, Lock, Unlock, Calendar, Eye,
   TrendingUp, BarChart3, Info, ExternalLink
 } from 'lucide-react';
-
+import RoomBlockingModal from './RoomBlockingModal';
 /**
  * RoomsManagementView - Gestion complète des chambres
  * 
@@ -25,7 +25,8 @@ const RoomsManagementView = ({
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all'); // all, completed, inprogress
-
+  const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
+  const [blockModalMode, setBlockModalMode] = useState('block');
   // Extraire toutes les chambres uniques depuis les interventions et blocages
   const allRooms = useMemo(() => {
     const roomsSet = new Set();
