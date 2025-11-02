@@ -10,6 +10,7 @@ import RoomBlockingModal from './RoomBlockingModal';
  * RoomsManagementView - Gestion complète des chambres
  * 
  * NOUVEAUTÉS :
+ * - Support multi-chambres (locations[])
  * - Bouton "Bloquer une chambre" dans le header
  * - Modal de blocage accessible depuis la liste
  * - Support du blocage sans intervention
@@ -36,7 +37,7 @@ const RoomsManagementView = ({
   const [blockModalMode, setBlockModalMode] = useState('block');
   const [blockModalRoom, setBlockModalRoom] = useState('');
 
-  // ✅ NOUVELLE LOGIQUE : Récupérer TOUTES les chambres depuis dropdowns.locations
+  // ✅ CORRIGÉ : Récupérer TOUTES les chambres depuis dropdowns.locations
   const allRooms = useMemo(() => {
     const roomsMap = new Map();
     const locations = dropdowns?.locations || [];
@@ -52,18 +53,41 @@ const RoomsManagementView = ({
     
     // 2. Parcourir toutes les chambres de la liste déroulante
     locations.forEach(location => {
-      const roomName = location.value || location;
-      if (!roomName) return;
+      // ✅ CORRIGÉ : Normaliser le nom de la chambre
+      let roomName;
+      if (typeof location === 'object' && location !== null) {
+        roomName = location.value || location.name || location.label;
+        // Si toujours un objet, convertir en string
+        if (typeof roomName === 'object') {
+          roomName = String(roomName);
+        }
+      } else {
+        roomName = String(location);
+      }
+      
+      // Skip si invalide
+      if (!roomName || roomName === '[object Object]' || roomName === 'undefined' || roomName === 'null') {
+        return;
+      }
       
       // Récupérer les interventions de cette chambre
-      const roomInterventions = interventions.filter(i => i.location === roomName);
+      // ✅ Support format ancien (location) et nouveau (locations[])
+      const roomInterventions = interventions.filter(i => {
+        // Nouveau format : locations array
+        if (i.locations && Array.isArray(i.locations)) {
+          return i.locations.includes(roomName);
+        }
+        // Ancien format : location string
+        return i.location === roomName;
+      });
+      
       const activeInterventions = roomInterventions.filter(i => 
         i.status === 'todo' || i.status === 'inprogress' || i.status === 'ordering'
       );
       
       // Vérifier si la chambre est bloquée (présente dans la map = forcément bloquée)
       const blockData = blockedRoomsMap.get(roomName);
-      const isBlocked = !!blockData; // Si présente dans la map, alors bloquée
+      const isBlocked = !!blockData;
       
       roomsMap.set(roomName, {
         name: roomName,
@@ -83,17 +107,53 @@ const RoomsManagementView = ({
     
     // 3. Ajouter les chambres qui ont des interventions mais ne sont pas dans la liste déroulante
     interventions.forEach(intervention => {
-      if (intervention.location && !roomsMap.has(intervention.location)) {
-        const roomInterventions = interventions.filter(i => i.location === intervention.location);
+      // ✅ CORRIGÉ : Gérer les interventions multi-chambres
+      const roomNames = [];
+      
+      // Nouveau format : locations[]
+      if (intervention.locations && Array.isArray(intervention.locations)) {
+        roomNames.push(...intervention.locations);
+      }
+      // Ancien format : location
+      else if (intervention.location) {
+        roomNames.push(intervention.location);
+      }
+      
+      roomNames.forEach(roomName => {
+        // Normaliser
+        let normalizedRoomName;
+        if (typeof roomName === 'object' && roomName !== null) {
+          normalizedRoomName = roomName.value || roomName.name || roomName.label || String(roomName);
+        } else {
+          normalizedRoomName = String(roomName);
+        }
+        
+        // Skip si invalide ou déjà dans la map
+        if (!normalizedRoomName || 
+            normalizedRoomName === '[object Object]' || 
+            normalizedRoomName === 'undefined' || 
+            normalizedRoomName === 'null' ||
+            roomsMap.has(normalizedRoomName)) {
+          return;
+        }
+        
+        // ✅ CORRIGÉ : Filtrer correctement les interventions pour cette chambre
+        const roomInterventions = interventions.filter(i => {
+          if (i.locations && Array.isArray(i.locations)) {
+            return i.locations.includes(normalizedRoomName);
+          }
+          return i.location === normalizedRoomName;
+        });
+        
         const activeInterventions = roomInterventions.filter(i => 
           i.status === 'todo' || i.status === 'inprogress' || i.status === 'ordering'
         );
         
-        const blockData = blockedRoomsMap.get(intervention.location);
-        const isBlocked = !!blockData; // Si présente dans la map, alors bloquée
+        const blockData = blockedRoomsMap.get(normalizedRoomName);
+        const isBlocked = !!blockData;
         
-        roomsMap.set(intervention.location, {
-          name: intervention.location,
+        roomsMap.set(normalizedRoomName, {
+          name: normalizedRoomName,
           isBlocked: isBlocked,
           blockInfo: isBlocked ? blockData : null,
           totalInterventions: roomInterventions.length,
@@ -104,18 +164,18 @@ const RoomsManagementView = ({
             return dateB - dateA;
           })[0]
         });
-      }
+      });
     });
     
     // Convertir en tableau et trier
     return Array.from(roomsMap.values()).sort((a, b) => {
-       const nameA = String(a.name || '');
-  const nameB = String(b.name || '');
-  return nameA.localeCompare(nameB, 'fr', { numeric: true });
-});
+      const nameA = String(a.name || '');
+      const nameB = String(b.name || '');
+      return nameA.localeCompare(nameB, 'fr', { numeric: true });
+    });
   }, [blockedRooms, interventions, dropdowns]);
 
-  // ✅ NOUVEAU : Filtrer les chambres par statut ET recherche
+  // ✅ Filtrer les chambres par statut ET recherche
   const filteredRooms = useMemo(() => {
     let filtered = allRooms;
 
@@ -128,14 +188,14 @@ const RoomsManagementView = ({
     if (searchTerm.trim()) {
       const searchLower = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(room => 
-        room.name.toLowerCase().includes(searchLower)
+        String(room.name).toLowerCase().includes(searchLower)
       );
     }
 
     return filtered;
   }, [allRooms, filterStatus, searchTerm]);
 
-  // ✅ NOUVELLES Statistiques (basées sur toutes les chambres)
+  // ✅ Statistiques (basées sur toutes les chambres)
   const stats = {
     total: allRooms.length,
     blocked: allRooms.filter(r => r.isBlocked).length,
@@ -143,11 +203,18 @@ const RoomsManagementView = ({
     withActiveInterventions: allRooms.filter(r => r.activeInterventions > 0).length
   };
 
-  // Interventions de la chambre sélectionnée
+  // ✅ CORRIGÉ : Interventions de la chambre sélectionnée (support multi-chambres)
   const roomInterventions = useMemo(() => {
     if (!selectedRoom) return [];
     
-    let roomInters = interventions.filter(i => i.location === selectedRoom.name);
+    let roomInters = interventions.filter(i => {
+      // Nouveau format : locations[]
+      if (i.locations && Array.isArray(i.locations)) {
+        return i.locations.includes(selectedRoom.name);
+      }
+      // Ancien format : location
+      return i.location === selectedRoom.name;
+    });
     
     if (historyFilter === 'completed') {
       roomInters = roomInters.filter(i => i.status === 'completed');
@@ -167,7 +234,7 @@ const RoomsManagementView = ({
   // Handler pour ouvrir le modal de blocage
   const handleOpenBlockModal = (room = null, mode = 'block') => {
     if (room) {
-      setBlockModalRoom(room.name);
+      setBlockModalRoom(String(room.name));
       setBlockModalMode(room.isBlocked ? 'unblock' : 'block');
     } else {
       setBlockModalRoom('');
@@ -271,7 +338,7 @@ const RoomsManagementView = ({
         </button>
       </div>
 
-      {/* ✅ NOUVELLES Statistiques */}
+      {/* Statistiques */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-4 text-white">
           <div className="flex items-center justify-between mb-2">
@@ -310,7 +377,7 @@ const RoomsManagementView = ({
         </div>
       </div>
 
-      {/* ✅ Filtres et recherche OPÉRATIONNELS */}
+      {/* Filtres et recherche */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
@@ -363,7 +430,7 @@ const RoomsManagementView = ({
                     >
                       <Home size={18} className="text-gray-500 flex-shrink-0" />
                       <span className="font-medium text-gray-800 dark:text-white">
-                        {room.name}
+                        {String(room.name)}
                       </span>
                     </button>
                     
@@ -421,7 +488,7 @@ const RoomsManagementView = ({
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2 flex items-center gap-3">
                     <Home size={28} />
-                    {selectedRoom.name}
+                    {String(selectedRoom.name)}
                   </h2>
                   
                   <div className="flex items-center gap-3 flex-wrap">

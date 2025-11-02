@@ -116,27 +116,39 @@ const InterventionDetailModal = ({
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // ✅ SIMPLIFIÉ : Calculer directement si la chambre est bloquée
-  const isCurrentRoomBlocked = useMemo(() => {
-    if (!intervention?.location || !blockedRooms?.length) return false;
-    
-    const blockedRoom = blockedRooms.find(br => br.room === intervention.location);
-    
-    console.log('🔍 Calcul isCurrentRoomBlocked:', {
-      room: intervention.location,
-      blockedRoom,
-      blocked: blockedRoom?.blocked,
-      result: blockedRoom?.blocked === true
-    });
-    
-    return blockedRoom?.blocked === true;
-  }, [blockedRooms, intervention?.location]);
+  // ✅ NOUVEAU : Support multi-chambres avec fallback
+  const rooms = useMemo(() => {
+    return intervention?.locations || [intervention?.location].filter(Boolean);
+  }, [intervention?.locations, intervention?.location]);
 
-  // ✅ SIMPLIFIÉ : Récupérer les infos de la chambre bloquée
+  const primaryRoom = intervention?.location;
+
+  // ✅ MODIFIÉ : Vérifier si AU MOINS UNE chambre est bloquée
+  const isAnyRoomBlocked = useMemo(() => {
+    if (!rooms.length || !blockedRooms?.length) return false;
+    
+    return rooms.some(room => 
+      blockedRooms.some(br => br.room === room && br.blocked === true)
+    );
+  }, [blockedRooms, rooms]);
+
+  // ✅ NOUVEAU : Liste des chambres bloquées
+  const blockedRoomsList = useMemo(() => {
+    if (!rooms.length || !blockedRooms?.length) return [];
+    
+    return rooms.filter(room =>
+      blockedRooms.some(br => br.room === room && br.blocked === true)
+    );
+  }, [blockedRooms, rooms]);
+
+  // ✅ MODIFIÉ : Récupérer les infos de la première chambre bloquée
   const currentBlockedRoom = useMemo(() => {
-    if (!intervention?.location || !isCurrentRoomBlocked) return null;
-    return blockedRooms.find(br => br.room === intervention.location && br.blocked === true);
-  }, [blockedRooms, intervention?.location, isCurrentRoomBlocked]);
+    if (blockedRoomsList.length === 0) return null;
+    return blockedRooms.find(br => br.room === blockedRoomsList[0] && br.blocked === true);
+  }, [blockedRooms, blockedRoomsList]);
+
+  // Pour la compatibilité avec l'ancien code
+  const isCurrentRoomBlocked = isAnyRoomBlocked;
 
   // ✅ Scroll auto vers les nouveaux messages
   useEffect(() => {
@@ -365,7 +377,10 @@ const InterventionDetailModal = ({
               {isCurrentRoomBlocked && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
                   <Lock size={14} />
-                  Chambre bloquée
+                  {blockedRoomsList.length > 1 
+                    ? `${blockedRoomsList.length} chambres bloquées` 
+                    : 'Chambre bloquée'
+                  }
                 </span>
               )}
               <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">
@@ -510,27 +525,36 @@ const InterventionDetailModal = ({
                 )}
               </div>
 
-              {/* Gestion de la chambre */}
-              {intervention?.roomType === 'chambre' && intervention?.location && (
+              {/* ✅ NOUVEAU : Gestion multi-chambres */}
+              {intervention?.roomType === 'chambre' && rooms.length > 0 && (
                 <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <Home className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                       <div>
                         <p className="font-semibold text-amber-900 dark:text-amber-100">
-                          Gestion de la chambre {isEditing ? editedData.location : intervention.location}
+                          {rooms.length === 1 ? (
+                            <>Gestion de la chambre {rooms[0]}</>
+                          ) : (
+                            <>Gestion de {rooms.length} chambres</>
+                          )}
                         </p>
+                        {rooms.length > 1 && (
+                          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                            {rooms.join(', ')}
+                          </p>
+                        )}
                         <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
                           {isCurrentRoomBlocked 
-                            ? '🚫 Cette chambre est actuellement bloquée'
-                            : '✅ Cette chambre est disponible'
+                            ? `🚫 ${blockedRoomsList.length} ${blockedRoomsList.length > 1 ? 'chambres bloquées' : 'chambre bloquée'}`
+                            : '✅ Toutes les chambres sont disponibles'
                           }
                         </p>
                       </div>
                     </div>
                     
-                    {/* Bouton bloquer/débloquer */}
-                    {!isEditing && (user?.role === 'manager' || user?.role === 'superadmin') && (
+                    {/* Bouton bloquer/débloquer la première chambre */}
+                    {!isEditing && (user?.role === 'manager' || user?.role === 'superadmin') && primaryRoom && (
                       <button
                         onClick={() => setIsRoomBlockModalOpen(true)}
                         className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
@@ -553,14 +577,26 @@ const InterventionDetailModal = ({
                       </button>
                     )}
                   </div>
-                  {isCurrentRoomBlocked && currentBlockedRoom && !isEditing && (
-                    <div className="mt-3 p-3 bg-white dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800">
-                      <p className="text-sm text-amber-800 dark:text-amber-200">
-                        <strong>Raison :</strong> {currentBlockedRoom.reason}
-                      </p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Bloquée par {currentBlockedRoom.blockedByName}
-                      </p>
+                  
+                  {/* Afficher les infos de blocage pour chaque chambre bloquée */}
+                  {isCurrentRoomBlocked && blockedRoomsList.length > 0 && !isEditing && (
+                    <div className="mt-3 space-y-2">
+                      {blockedRoomsList.map((room, index) => {
+                        const blockedInfo = blockedRooms.find(br => br.room === room && br.blocked === true);
+                        return (
+                          <div key={index} className="p-3 bg-white dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800">
+                            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                              Chambre {room}
+                            </p>
+                            <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+                              <strong>Raison :</strong> {blockedInfo?.reason || 'Non spécifiée'}
+                            </p>
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                              Bloquée par {blockedInfo?.blockedByName || 'Inconnu'}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -569,7 +605,7 @@ const InterventionDetailModal = ({
               {/* Informations principales */}
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Localisation */}
+                  {/* ✅ MODIFIÉ : Localisation avec support multi-chambres */}
                   <div className="flex items-start gap-3">
                     <MapPin className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
@@ -589,7 +625,18 @@ const InterventionDetailModal = ({
                         </select>
                       ) : (
                         <div className="font-medium text-gray-900 dark:text-white">
-                          {intervention?.location || 'Non spécifié'}
+                          {rooms.length === 1 ? (
+                            <span>{rooms[0] || 'Non spécifié'}</span>
+                          ) : rooms.length > 1 ? (
+                            <div>
+                              <span className="font-bold">{rooms.length} chambres</span>
+                              <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
+                                ({rooms.slice(0, 3).join(', ')}{rooms.length > 3 ? '...' : ''})
+                              </span>
+                            </div>
+                          ) : (
+                            'Non spécifié'
+                          )}
                         </div>
                       )}
                     </div>
@@ -1097,12 +1144,12 @@ const InterventionDetailModal = ({
         </div>
       </div>
       {/* ✅ Modal de blocage */}
-      {isRoomBlockModalOpen && intervention?.location && !isEditing && (
+      {isRoomBlockModalOpen && primaryRoom && !isEditing && (
         <RoomBlockingModal
           isOpen={isRoomBlockModalOpen}
           onClose={() => setIsRoomBlockModalOpen(false)}
           onConfirm={handleToggleRoomBlock}
-          defaultRoom={intervention.location}
+          defaultRoom={primaryRoom}
           defaultReason={currentBlockedRoom?.reason || ''}
           isBlocking={!isCurrentRoomBlocked}
           blockedRooms={blockedRooms}

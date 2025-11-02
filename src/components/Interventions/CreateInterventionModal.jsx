@@ -1,4 +1,4 @@
-// src/components/Interventions/CreateInterventionModal.jsx - VERSION ADAPTÉE MULTI-SÉLECTION
+// src/components/Interventions/CreateInterventionModal.jsx - VERSION CORRIGÉE
 import React, { useMemo } from 'react';
 import { ClipboardList, Home, User, Hammer, AlertCircle, FileText, Users } from 'lucide-react';
 import FormModal from '../common/FormModal';
@@ -7,7 +7,7 @@ import {
   TextInput,
   TextareaInput
 } from '../common/FormFields';
-import MultiSelectField from '../common/MultiSelectField';
+import MultiSmartLocationField from '../common/MultiSmartLocationField'; // ✅ NOUVEAU IMPORT
 
 const CreateInterventionModal = ({ 
   isOpen, 
@@ -26,21 +26,13 @@ const CreateInterventionModal = ({
   const activeDropdowns = {
     roomTypes: getActiveOptions(dropdowns.roomTypes),
     locations: getActiveOptions(dropdowns.locations),
-    missionTypes: getActiveOptions(dropdowns.missionTypes),
     interventionTypes: getActiveOptions(dropdowns.interventionTypes),
     priorities: getActiveOptions(dropdowns.priorities),
   };
 
   const activeTechnicians = getActiveOptions(adminOptions.technicians);
 
-  // ✅ Préparer les options pour MultiSelectField
-  const locationOptions = useMemo(() => {
-    return activeDropdowns.locations.map(loc => ({
-      value: typeof loc === 'object' ? loc.value : loc,
-      label: typeof loc === 'object' ? (loc.label || loc.name || loc.value) : loc
-    }));
-  }, [activeDropdowns.locations]);
-
+  // ✅ Préparer les options pour MultiSmartLocationField (intervenants)
   const technicianOptions = useMemo(() => {
     return activeTechnicians.map(tech => ({
       value: tech.id,
@@ -53,11 +45,10 @@ const CreateInterventionModal = ({
     roomType: 'chambre',
     locations: [],          // ✅ Array de chambres
     assignedTo: [],         // ✅ Array d'intervenants
-    missionType: '',
+    interventionType: '',
     missionSummary: '',
     missionComment: '',
-    priority: 'normal',
-    interventionType: ''
+    priority: 'normal'
   }), [isOpen]);
 
   const validate = async (formData) => {
@@ -81,10 +72,6 @@ const CreateInterventionModal = ({
       errors.missionSummary = 'Minimum 5 caractères';
     }
 
-    if (!formData.missionType) {
-      errors.missionType = 'Le type de mission est obligatoire';
-    }
-
     return errors;
   };
 
@@ -94,7 +81,7 @@ const CreateInterventionModal = ({
     try {
       const { locations, assignedTo, ...baseData } = formData;
 
-      // ✅ STRATÉGIE : Créer une intervention par combinaison chambre
+      // ✅ STRATÉGIE : Créer une intervention par chambre
       // Si 3 chambres et 2 intervenants = 3 interventions (une par chambre)
       // avec tous les intervenants assignés à chaque
 
@@ -107,11 +94,17 @@ const CreateInterventionModal = ({
 
         const interventionData = {
           ...baseData,
-          location,               // Chambre unique
-          locations: [location],  // Array avec une chambre
-          assignedTo: assignedTo[0],  // Premier intervenant (principal)
-          assignedToIds: assignedTo,  // ✅ NOUVEAU : Tous les IDs
-          assignedToName: assignedNames,  // ✅ NOUVEAU : Tous les noms
+          
+          // ✅ STRUCTURE HYBRIDE pour rétrocompatibilité
+          location,               // String : première chambre (RÉTROCOMPAT)
+          locations: [location],  // Array : toujours un array pour cohérence
+          
+          // ✅ Intervenants en format hybride
+          assignedTo: assignedTo[0],      // String : premier intervenant (RÉTROCOMPAT)
+          assignedToIds: assignedTo,      // Array : tous les IDs
+          assignedToName: assignedNames,  // String : tous les noms concaténés
+          
+          // Autres champs
           roomBlocked: blockedRooms.some(br => br.room === location && br.blocked === true),
           createdBy: user.uid,
           createdByName: user.name || user.email,
@@ -134,12 +127,6 @@ const CreateInterventionModal = ({
         error: error.message
       };
     }
-  };
-
-  // ✅ Fonction pour vérifier si une chambre est bloquée
-  const checkIfRoomBlocked = (roomValue) => {
-    const blocked = blockedRooms.find(br => br.room === roomValue && br.blocked === true);
-    return blocked ? 'Bloquée' : null;
   };
 
   return (
@@ -180,73 +167,77 @@ const CreateInterventionModal = ({
                 }))}
               />
 
-              {/* ✅ Multi-sélection des chambres */}
+              {/* ✅ NOUVEAU : Multi-sélection avec suggestions intelligentes */}
               {formData.roomType === 'chambre' && (
                 <div className="mt-4">
-                  <MultiSelectField
+                  <MultiSmartLocationField
                     label="Chambres concernées"
                     value={formData.locations}
                     onChange={(newLocations) => {
+                      console.log('📍 Nouvelles chambres sélectionnées:', newLocations);
                       setFormData(prev => ({ ...prev, locations: newLocations }));
                     }}
-                    options={locationOptions}
-                    placeholder="Choisir depuis la liste"
-                    addPlaceholder="Ex: 705 ou 705-710 ou 705,706,707"
+                    options={activeDropdowns.locations}  // ✅ Utiliser options, pas locations
+                    warningCheck={(roomNumber) => {      // ✅ Fonction pour vérifier si bloquée
+                      const blocked = blockedRooms.find(br => br.room === roomNumber && br.blocked === true);
+                      return blocked ? '⚠️ Chambre bloquée' : null;
+                    }}
+                    onAddNew={onAddLocation}            // ✅ Pour créer de nouvelles chambres
+                    allowRange={true}                   // ✅ Permettre 705-710
+                    allowMultiple={true}                // ✅ Permettre 705,706,707
+                    allowCustom={false}                 // ✅ Pas de valeurs custom sans validation
                     required
                     disabled={isSubmitting}
-                    allowRange={true}
-                    allowCustom={true}
-                    warningCheck={checkIfRoomBlocked}
+                    placeholder="Ex: 705 ou 705-710 ou 705,706,707"
                     icon={Home}
+                    error={errors.locations}
                   />
-                  {errors.locations && (
-                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">
-                      {errors.locations}
-                    </p>
-                  )}
                 </div>
               )}
 
-              {/* Pour les autres types de local */}
+              {/* Autre type de local */}
               {formData.roomType !== 'chambre' && (
                 <div className="mt-4">
-                  <TextInput
-                    id="singleLocation"
+                  <SelectInput
+                    id="location"
                     label="Localisation"
-                    placeholder="Ex: Couloir étage 3..."
+                    required
                     value={formData.locations[0] || ''}
                     onChange={(value) => setFormData(prev => ({ ...prev, locations: [value] }))}
                     disabled={isSubmitting}
+                    options={activeDropdowns.locations.map(loc => ({
+                      value: typeof loc === 'object' ? loc.value : loc,
+                      label: typeof loc === 'object' ? (loc.label || loc.name || loc.value) : loc
+                    }))}
+                    error={errors.locations}
                   />
                 </div>
               )}
             </div>
 
-            {/* Nature de l'intervention */}
-            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+            {/* Type d'intervention */}
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
               <div className="flex items-center gap-2 mb-3">
-                <Hammer className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                <h3 className="font-semibold text-gray-900 dark:text-white">Nature de l'intervention</h3>
+                <Hammer className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                <h3 className="font-semibold text-gray-900 dark:text-white">Type d'Intervention</h3>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <SelectInput
-                  id="interventionType"
-                  label="Type"
-                  value={formData.interventionType}
-                  onChange={(value) => setFormData(prev => ({ ...prev, interventionType: value }))}
-                  placeholder="Sélectionner..."
-                  disabled={isSubmitting}
-                  options={activeDropdowns.interventionTypes.map(it => ({
-                    value: it.value,
-                    label: it.name
-                  }))}
-                />
+              <SelectInput
+                id="interventionType"
+                label="Type d'Intervention"
+                value={formData.interventionType}
+                onChange={(value) => setFormData(prev => ({ ...prev, interventionType: value }))}
+                disabled={isSubmitting}
+                options={activeDropdowns.interventionTypes.map(it => ({
+                  value: it.value,
+                  label: it.name
+                }))}
+              />
 
+              <div className="mt-4">
                 <SelectInput
                   id="priority"
                   label="Priorité"
-                  required
                   value={formData.priority}
                   onChange={(value) => setFormData(prev => ({ ...prev, priority: value }))}
                   disabled={isSubmitting}
@@ -256,32 +247,15 @@ const CreateInterventionModal = ({
                   }))}
                 />
               </div>
-
-              <div className="mt-3">
-                <SelectInput
-                  id="missionType"
-                  label="Type de mission"
-                  required
-                  value={formData.missionType}
-                  onChange={(value) => setFormData(prev => ({ ...prev, missionType: value }))}
-                  placeholder="Sélectionner..."
-                  disabled={isSubmitting}
-                  error={errors.missionType}
-                  options={activeDropdowns.missionTypes.map(mt => ({
-                    value: mt.value,
-                    label: mt.name
-                  }))}
-                />
-              </div>
             </div>
           </div>
 
           {/* COLONNE DROITE */}
           <div className="space-y-5">
             {/* Description */}
-            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+            <div className="bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
               <div className="flex items-center gap-2 mb-3">
-                <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <FileText className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                 <h3 className="font-semibold text-gray-900 dark:text-white">Description</h3>
               </div>
 
@@ -291,15 +265,15 @@ const CreateInterventionModal = ({
                 required
                 value={formData.missionSummary}
                 onChange={(value) => setFormData(prev => ({ ...prev, missionSummary: value }))}
-                error={errors.missionSummary}
-                placeholder="Brève description du problème..."
+                placeholder="Ex: Réparation climatisation chambre 101"
                 disabled={isSubmitting}
+                error={errors.missionSummary}
               />
 
-              <div className="mt-3">
+              <div className="mt-4">
                 <TextareaInput
                   id="missionComment"
-                  label="Commentaires détaillés"
+                  label="Commentaires"
                   value={formData.missionComment}
                   onChange={(value) => setFormData(prev => ({ ...prev, missionComment: value }))}
                   placeholder="Détails supplémentaires..."
@@ -316,36 +290,45 @@ const CreateInterventionModal = ({
                 <h3 className="font-semibold text-gray-900 dark:text-white">Intervenants</h3>
               </div>
 
-              <MultiSelectField
+              <MultiSmartLocationField
                 label="Assigner à"
                 value={formData.assignedTo}
                 onChange={(newAssignedTo) => {
+                  console.log('👤 Nouveaux intervenants:', newAssignedTo);
                   setFormData(prev => ({ ...prev, assignedTo: newAssignedTo }));
                 }}
                 options={technicianOptions}
-                placeholder="Choisir un ou plusieurs intervenants"
-                addPlaceholder="Rechercher un intervenant..."
                 required
                 disabled={isSubmitting}
-                allowRange={false}
-                allowCustom={false}
+                allowRange={false}     // ✅ Pas de plages pour les intervenants
+                allowMultiple={false}  // ✅ Pas de format multiple non plus
+                allowCustom={false}    // ✅ Pas de création à la volée
+                placeholder="Rechercher un intervenant..."
                 icon={User}
+                error={errors.assignedTo}
               />
-              {errors.assignedTo && (
-                <p className="mt-1 text-sm text-red-600 dark:text-red-400">
-                  {errors.assignedTo}
-                </p>
-              )}
 
               {/* Info sur la création */}
               <div className="mt-4 pt-3 border-t border-green-200 dark:border-green-800">
                 <p className="text-xs text-gray-600 dark:text-gray-400">
                   💡 {formData.locations.length > 0 && formData.assignedTo.length > 0 && (
                     <span className="font-medium text-green-700 dark:text-green-300">
-                      {formData.locations.length} intervention(s) seront créées
+                      {formData.locations.length} intervention(s) seront créées avec {formData.assignedTo.length} intervenant(s)
                     </span>
                   )}
                 </p>
+                
+                {/* ⚠️ Alertes chambres bloquées */}
+                {formData.locations.some(loc => 
+                  blockedRooms.some(br => br.room === loc && br.blocked === true)
+                ) && (
+                  <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                      <AlertCircle size={12} />
+                      Certaines chambres sélectionnées sont bloquées
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
