@@ -3,7 +3,7 @@ import {
   X, Calendar, User, MapPin, FileText, Package, MessageSquare, 
   Image as ImageIcon, Send, Paperclip, Trash2, Check, Clock, 
   ChevronDown, ChevronUp, Wrench, AlertCircle, CheckCircle2, 
-  Loader2, Home, Lock, Unlock, Edit3
+  Loader2, Home, Lock, Unlock, Edit3, Save 
 } from 'lucide-react';
 import RoomBlockingModal from '../Rooms/RoomBlockingModal';
 
@@ -100,6 +100,19 @@ const InterventionDetailModal = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRoomBlockModalOpen, setIsRoomBlockModalOpen] = useState(false);
   
+  // ✨ NOUVEAUX ÉTATS pour le mode édition
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedData, setEditedData] = useState({
+    missionSummary: intervention?.missionSummary || '',
+    missionComment: intervention?.missionComment || '',
+    assignedTo: intervention?.assignedTo || '',
+    location: intervention?.location || '',
+    roomType: intervention?.roomType || '',
+    missionType: intervention?.missionType || '',
+    interventionType: intervention?.interventionType || '',
+    priority: intervention?.priority || ''
+  });
+  
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -137,8 +150,25 @@ const InterventionDetailModal = ({
     setTechComment(intervention?.techComment || '');
   }, [intervention?.techComment]);
 
+  // ✨ NOUVEAU : Réinitialiser les données éditées quand l'intervention change
+  useEffect(() => {
+    if (intervention) {
+      setEditedData({
+        missionSummary: intervention.missionSummary || '',
+        missionComment: intervention.missionComment || '',
+        assignedTo: intervention.assignedTo || '',
+        location: intervention.location || '',
+        roomType: intervention.roomType || '',
+        missionType: intervention.missionType || '',
+        interventionType: intervention.interventionType || '',
+        priority: intervention.priority || ''
+      });
+      setIsEditing(false);
+    }
+  }, [intervention]);
+
   // ✅ Récupérer les informations du technicien assigné
-  const assignedUser = users.find(u => u.id === intervention?.assignedTo);
+  const assignedUser = users.find(u => u.id === (isEditing ? editedData.assignedTo : intervention?.assignedTo));
   const assignedName = intervention?.assignedToName || assignedUser?.name || 'Non assigné';
 
   // ✅ Fonctions pour obtenir les labels depuis les dropdowns
@@ -164,6 +194,37 @@ const InterventionDetailModal = ({
     if (!value) return 'Normale';
     const priority = dropdowns.priorities?.find(p => p.value === value);
     return priority?.name || value;
+  };
+
+  // ✨ NOUVEAU : Sauvegarder les modifications
+  const handleSaveEdit = async () => {
+    setIsSubmitting(true);
+    try {
+      const result = await onUpdate(editedData);
+      
+      if (result?.success) {
+        setIsEditing(false);
+      }
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ✨ NOUVEAU : Annuler les modifications
+  const handleCancelEdit = () => {
+    setEditedData({
+      missionSummary: intervention.missionSummary || '',
+      missionComment: intervention.missionComment || '',
+      assignedTo: intervention.assignedTo || '',
+      location: intervention.location || '',
+      roomType: intervention.roomType || '',
+      missionType: intervention.missionType || '',
+      interventionType: intervention.interventionType || '',
+      priority: intervention.priority || ''
+    });
+    setIsEditing(false);
   };
 
   // ✅ SIMPLIFIÉ : Handler qui laisse le parent gérer la mise à jour
@@ -319,12 +380,58 @@ const InterventionDetailModal = ({
               )}
             </div>
           </div>
-          <button 
-            onClick={onClose} 
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0 ml-4"
-          >
-            <X className="w-6 h-6 text-gray-500 dark:text-gray-400" />
-          </button>
+          
+          {/* ✨ MODIFIÉ : Ajout des boutons d'édition */}
+          <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+            {/* Bouton Modifier/Sauvegarder (visible seulement pour superadmin) */}
+            {user?.role === 'superadmin' && activeTab === 'details' && (
+              <>
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={isSubmitting}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition flex items-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          Sauvegarde...
+                        </>
+                      ) : (
+                        <>
+                          <Save size={18} />
+                          Enregistrer
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={isSubmitting}
+                      className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition font-medium disabled:opacity-50"
+                    >
+                      Annuler
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition flex items-center gap-2 font-medium"
+                  >
+                    <Edit3 size={18} />
+                    Modifier
+                  </button>
+                )}
+              </>
+            )}
+            
+            <button 
+              onClick={onClose} 
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <X className="w-6 h-6 text-gray-500 dark:text-gray-400" />
+            </button>
+          </div>
         </div>
 
         {/* ========== TABS ========== */}
@@ -340,7 +447,12 @@ const InterventionDetailModal = ({
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    if (isEditing && tab.id !== 'details') {
+                      handleCancelEdit();
+                    }
+                  }}
                   className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium transition-colors relative whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
@@ -365,6 +477,39 @@ const InterventionDetailModal = ({
           {/* TAB DÉTAILS */}
           {activeTab === 'details' && (
             <div className="space-y-6">
+              {/* ✨ NOUVEAU : Avertissement mode édition */}
+              {isEditing && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle size={20} className="text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                      <p className="font-medium mb-1">🛡️ Mode édition activé</p>
+                      <p>Vous modifiez les données de base de l'intervention. Ces changements seront enregistrés dans l'historique.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ✨ Résumé de la mission (éditable) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Résumé de la mission
+                </label>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editedData.missionSummary}
+                    onChange={(e) => setEditedData({...editedData, missionSummary: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                    placeholder="Ex: Réparation climatisation chambre 101"
+                  />
+                ) : (
+                  <p className="text-lg font-medium text-gray-900 dark:text-white">
+                    {intervention?.missionSummary || 'Non spécifié'}
+                  </p>
+                )}
+              </div>
+
               {/* Gestion de la chambre */}
               {intervention?.roomType === 'chambre' && intervention?.location && (
                 <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
@@ -373,7 +518,7 @@ const InterventionDetailModal = ({
                       <Home className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                       <div>
                         <p className="font-semibold text-amber-900 dark:text-amber-100">
-                          Gestion de la chambre {intervention.location}
+                          Gestion de la chambre {isEditing ? editedData.location : intervention.location}
                         </p>
                         <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
                           {isCurrentRoomBlocked 
@@ -385,7 +530,7 @@ const InterventionDetailModal = ({
                     </div>
                     
                     {/* Bouton bloquer/débloquer */}
-                    {(user?.role === 'manager' || user?.role === 'superadmin') && (
+                    {!isEditing && (user?.role === 'manager' || user?.role === 'superadmin') && (
                       <button
                         onClick={() => setIsRoomBlockModalOpen(true)}
                         className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
@@ -408,8 +553,7 @@ const InterventionDetailModal = ({
                       </button>
                     )}
                   </div>
-                  {/* ✅ Utiliser directement blockedRooms */}
-                  {isCurrentRoomBlocked && currentBlockedRoom && (
+                  {isCurrentRoomBlocked && currentBlockedRoom && !isEditing && (
                     <div className="mt-3 p-3 bg-white dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800">
                       <p className="text-sm text-amber-800 dark:text-amber-200">
                         <strong>Raison :</strong> {currentBlockedRoom.reason}
@@ -429,10 +573,25 @@ const InterventionDetailModal = ({
                   <div className="flex items-start gap-3">
                     <MapPin className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-gray-500 dark:text-gray-400">Localisation</div>
-                      <div className="font-medium text-gray-900 dark:text-white">
-                        {intervention?.location || 'Non spécifié'}
-                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Localisation</div>
+                      {isEditing ? (
+                        <select
+                          value={editedData.location}
+                          onChange={(e) => setEditedData({...editedData, location: e.target.value})}
+                          className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                        >
+                          <option value="">Sélectionner...</option>
+                          {dropdowns.locations?.map((loc, index) => (
+                            <option key={index} value={typeof loc === 'object' ? loc.value : loc}>
+                              {typeof loc === 'object' ? loc.label : loc}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {intervention?.location || 'Non spécifié'}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -440,54 +599,138 @@ const InterventionDetailModal = ({
                   <div className="flex items-start gap-3">
                     <User className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-gray-500 dark:text-gray-400">Assigné à</div>
-                      <div className="font-medium text-gray-900 dark:text-white">
-                        {assignedName}
-                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Assigné à</div>
+                      {isEditing ? (
+                        <select
+                          value={editedData.assignedTo}
+                          onChange={(e) => setEditedData({...editedData, assignedTo: e.target.value})}
+                          className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                        >
+                          <option value="">Sélectionner...</option>
+                          {users?.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {assignedName}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Type de local */}
+                  <div className="flex items-start gap-3">
+                    <Home className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Type de local</div>
+                      {isEditing ? (
+                        <select
+                          value={editedData.roomType}
+                          onChange={(e) => setEditedData({...editedData, roomType: e.target.value})}
+                          className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                        >
+                          <option value="">Sélectionner...</option>
+                          {dropdowns.roomTypes?.map((rt, index) => (
+                            <option key={index} value={typeof rt === 'object' ? rt.value : rt}>
+                              {typeof rt === 'object' ? rt.label || rt.name : rt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {getRoomTypeLabel(intervention?.roomType)}
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {/* Type de mission */}
-                  {intervention?.missionType && (
+                  {(intervention?.missionType || isEditing) && (
                     <div className="flex items-start gap-3">
                       <Wrench className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Type de mission</div>
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {getMissionTypeLabel(intervention.missionType)}
-                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Type de mission</div>
+                        {isEditing ? (
+                          <select
+                            value={editedData.missionType}
+                            onChange={(e) => setEditedData({...editedData, missionType: e.target.value})}
+                            className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                          >
+                            <option value="">Sélectionner...</option>
+                            {dropdowns.missionTypes?.map((mt, index) => (
+                              <option key={index} value={typeof mt === 'object' ? mt.value : mt}>
+                                {typeof mt === 'object' ? mt.label || mt.name : mt}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="font-medium text-gray-900 dark:text-white">
+                            {getMissionTypeLabel(intervention.missionType)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
                   {/* Type d'intervention */}
-                  {intervention?.interventionType && (
+                  {(intervention?.interventionType || isEditing) && (
                     <div className="flex items-start gap-3">
                       <AlertCircle className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Type d'intervention</div>
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {getInterventionTypeLabel(intervention.interventionType)}
-                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Type d'intervention</div>
+                        {isEditing ? (
+                          <select
+                            value={editedData.interventionType}
+                            onChange={(e) => setEditedData({...editedData, interventionType: e.target.value})}
+                            className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                          >
+                            <option value="">Sélectionner...</option>
+                            {dropdowns.interventionTypes?.map((it, index) => (
+                              <option key={index} value={typeof it === 'object' ? it.value : it}>
+                                {typeof it === 'object' ? it.label || it.name : it}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="font-medium text-gray-900 dark:text-white">
+                            {getInterventionTypeLabel(intervention.interventionType)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
                   {/* Priorité */}
-                  {intervention?.priority && (
+                  {(intervention?.priority || isEditing) && (
                     <div className="flex items-start gap-3">
                       <AlertCircle className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Priorité</div>
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {getPriorityLabel(intervention.priority)}
-                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Priorité</div>
+                        {isEditing ? (
+                          <select
+                            value={editedData.priority}
+                            onChange={(e) => setEditedData({...editedData, priority: e.target.value})}
+                            className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                          >
+                            <option value="low">Basse</option>
+                            <option value="normal">Normale</option>
+                            <option value="high">Haute</option>
+                            <option value="urgent">Urgente</option>
+                          </select>
+                        ) : (
+                          <div className="font-medium text-gray-900 dark:text-white">
+                            {getPriorityLabel(intervention.priority)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
                   {/* Créateur */}
-                  {intervention?.creatorName && (
+                  {intervention?.creatorName && !isEditing && (
                     <div className="flex items-start gap-3">
                       <User className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
@@ -501,21 +744,29 @@ const InterventionDetailModal = ({
                 </div>
 
                 {/* Commentaire (full width) */}
-                {intervention?.missionComment && (
-                  <div className="flex items-start gap-3 pt-3 border-t border-gray-200 dark:border-gray-600">
-                    <FileText className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Commentaire</div>
+                <div className="flex items-start gap-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                  <FileText className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Commentaire</div>
+                    {isEditing ? (
+                      <textarea
+                        value={editedData.missionComment}
+                        onChange={(e) => setEditedData({...editedData, missionComment: e.target.value})}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                        placeholder="Description détaillée de l'intervention..."
+                      />
+                    ) : (
                       <div className="text-gray-900 dark:text-white whitespace-pre-wrap">
-                        {intervention.missionComment}
+                        {intervention?.missionComment || 'Aucun commentaire'}
                       </div>
-                    </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Actions rapides */}
-              {(user?.role === 'manager' || user?.role === 'superadmin') && (
+              {!isEditing && (user?.role === 'manager' || user?.role === 'superadmin') && (
                 <div>
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Actions rapides</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -543,7 +794,7 @@ const InterventionDetailModal = ({
               )}
 
               {/* Commentaire technicien */}
-              {(user?.role === 'technician' || user?.role === 'manager' || user?.role === 'superadmin') && (
+              {!isEditing && (user?.role === 'technician' || user?.role === 'manager' || user?.role === 'superadmin') && (
                 <div>
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Commentaire technicien</h3>
                   <textarea
@@ -577,45 +828,47 @@ const InterventionDetailModal = ({
               )}
 
               {/* Historique */}
-              <div>
-                <button
-                  onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
-                  className="flex items-center justify-between w-full mb-3"
-                >
-                  <h3 className="font-semibold text-gray-900 dark:text-white">Historique</h3>
-                  {isHistoryExpanded ? (
-                    <ChevronUp className="w-5 h-5 text-gray-400" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
-                  )}
-                </button>
-                
-                {isHistoryExpanded && (
-                  <div className="space-y-3">
-                    {intervention?.history?.length > 0 ? (
-                      intervention.history.slice().reverse().map((event, index) => {
-                        const config = statusConfig[event.status] || statusConfig.todo;
-                        const Icon = config.icon;
-                        return (
-                          <div key={event.id || index} className="flex gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                            <div className={`p-2 rounded-lg ${config.color}`}>
-                              <Icon className="w-4 h-4" />
-                            </div>
-                            <div className="flex-1">
-                              <div className="font-medium text-gray-900 dark:text-white">{event.comment}</div>
-                              <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                Par {event.byName} • {formatTimestamp(event.date)}
+              {!isEditing && (
+                <div>
+                  <button
+                    onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
+                    className="flex items-center justify-between w-full mb-3"
+                  >
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Historique</h3>
+                    {isHistoryExpanded ? (
+                      <ChevronUp className="w-5 h-5 text-gray-400" />
+                    ) : (
+                      <ChevronDown className="w-5 h-5 text-gray-400" />
+                    )}
+                  </button>
+                  
+                  {isHistoryExpanded && (
+                    <div className="space-y-3">
+                      {intervention?.history?.length > 0 ? (
+                        intervention.history.slice().reverse().map((event, index) => {
+                          const config = statusConfig[event.status] || statusConfig.todo;
+                          const Icon = config.icon;
+                          return (
+                            <div key={event.id || index} className="flex gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                              <div className={`p-2 rounded-lg ${config.color}`}>
+                                <Icon className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900 dark:text-white">{event.comment}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                  Par {event.byName} • {formatTimestamp(event.date)}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="text-gray-500 dark:text-gray-400 text-sm italic">Aucun historique</p>
-                    )}
-                  </div>
-                )}
-              </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-gray-500 dark:text-gray-400 text-sm italic">Aucun historique</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -844,7 +1097,7 @@ const InterventionDetailModal = ({
         </div>
       </div>
       {/* ✅ Modal de blocage */}
-      {isRoomBlockModalOpen && intervention?.location && (
+      {isRoomBlockModalOpen && intervention?.location && !isEditing && (
         <RoomBlockingModal
           isOpen={isRoomBlockModalOpen}
           onClose={() => setIsRoomBlockModalOpen(false)}

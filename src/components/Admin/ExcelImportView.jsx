@@ -1,17 +1,24 @@
 import React, { useState } from 'react';
 import { useExcelImport } from '../../hooks/useExcelImport';
 import { useAuth } from '../../contexts/AuthContext';
+import ImportValidationModal from '../ImportValidationModal';
 import { Upload, Download, Trash2, FileSpreadsheet, AlertTriangle, CheckCircle, Loader, Database, RefreshCw, Info, X } from 'lucide-react';
 
 const ExcelImportView = () => {
   const { user } = useAuth();
-  const { importData, deleteAllInterventions, downloadTemplate } = useExcelImport(user);
+  
+  // ✅ CORRECT : Appeler useExcelImport une seule fois au niveau du composant
+  const { importData, analyzeImportData, deleteAllInterventions, downloadTemplate } = useExcelImport(user);
   
   const [file, setFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [parsedDataForValidation, setParsedDataForValidation] = useState([]);
+  const [existingDropdowns, setExistingDropdowns] = useState({});
+  const [analyzing, setAnalyzing] = useState(false);
 
   // Gérer la sélection du fichier
   const handleFileSelect = (e) => {
@@ -29,16 +36,53 @@ const ExcelImportView = () => {
     }
   };
 
-  const handleImport = async () => {
+  // ✅ CORRIGÉ : Utiliser directement analyzeImportData du hook
+  const handleAnalyze = async () => {
     if (!file) {
       alert('Veuillez sélectionner un fichier');
       return;
     }
 
-    setImporting(true);
+    setAnalyzing(true);
 
     try {
-      const result = await importData(file);
+      // ✅ Utiliser directement la fonction du hook (pas de re-appel de useExcelImport)
+      const result = await analyzeImportData(file);
+      
+      if (result.success) {
+        setParsedDataForValidation(result.parsedData);
+        setExistingDropdowns(result.existingDropdowns);
+        setShowValidationModal(true);
+        
+        if (result.errors.length > 0) {
+          console.warn('⚠️ Erreurs détectées:', result.errors);
+        }
+      } else {
+        alert('Erreur lors de l\'analyse: ' + result.error);
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur analyse:', error);
+      alert('Erreur lors de l\'analyse: ' + error.message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  // ✅ CORRIGÉ : Utiliser directement importData du hook
+  const handleConfirmImport = async (validatedData, approvedNewValues) => {
+    setImporting(true);
+    setShowValidationModal(false);
+
+    try {
+      // Convertir les Sets en Arrays
+      const approvedValues = {};
+      Object.entries(approvedNewValues).forEach(([field, valueSet]) => {
+        approvedValues[field] = Array.from(valueSet);
+      });
+      
+      // ✅ Utiliser directement la fonction du hook (pas de re-appel de useExcelImport)
+      const result = await importData(validatedData, approvedValues);
       
       if (result.success) {
         setResults({
@@ -47,6 +91,8 @@ const ExcelImportView = () => {
           total: result.total,
           errorDetails: result.errorDetails || []
         });
+        
+        setFile(null);
       } else {
         alert('Erreur lors de l\'import: ' + result.error);
       }
@@ -213,19 +259,24 @@ const ExcelImportView = () => {
 
           {/* Bouton import */}
           <button
-            onClick={handleImport}
-            disabled={!file || importing}
+            onClick={handleAnalyze}
+            disabled={!file || analyzing || importing}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-lg font-medium transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {importing ? (
+            {analyzing ? (
               <>
-                <Loader className="animate-spin" size={20} />
+                <Loader size={20} className="animate-spin" />
+                Analyse en cours...
+              </>
+            ) : importing ? (
+              <>
+                <Loader size={20} className="animate-spin" />
                 Import en cours...
               </>
             ) : (
               <>
-                <Upload size={20} />
-                Importer les données
+                <RefreshCw size={20} />
+                Analyser et valider
               </>
             )}
           </button>
@@ -337,6 +388,19 @@ const ExcelImportView = () => {
             </div>
           </div>
         )}
+
+        {/* ✅ Modal de validation */}
+        <ImportValidationModal
+          isOpen={showValidationModal}
+          onClose={() => {
+            setShowValidationModal(false);
+            setParsedDataForValidation([]);
+          }}
+          onConfirmImport={handleConfirmImport}
+          parsedData={parsedDataForValidation}
+          existingDropdowns={existingDropdowns}
+          dropdownFields={['assignedTo', 'location', 'roomType', 'missionType', 'interventionType']}
+        />
       </div>
     </div>
   );

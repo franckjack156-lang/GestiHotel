@@ -1,4 +1,4 @@
-// src/hooks/useExcelImport.js - VERSION AVEC SUPPORT EXCEL COMPLET
+// src/hooks/useExcelImport.js - VERSION CORRIGÉE
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { 
@@ -193,6 +193,122 @@ export const useExcelImport = (user) => {
   };
 
   /**
+   * Récupérer les dropdowns existants depuis Firestore
+   */
+  const getExistingDropdowns = async () => {
+    try {
+      const adminDataSnapshot = await getDocs(collection(db, 'adminData'));
+      
+      const dropdowns = {
+        assignedTo: [],
+        locations: [],
+        roomTypes: [],
+        missionTypes: [],
+        interventionTypes: []
+      };
+
+      adminDataSnapshot.forEach(doc => {
+        const data = doc.data();
+        
+        if (data.type === 'technicians' && data.active !== false) {
+          dropdowns.assignedTo.push(data.name);
+        } else if (data.type === 'locations') {
+          dropdowns.locations.push(data.name);
+        } else if (data.type === 'roomTypes') {
+          dropdowns.roomTypes.push({ value: data.value, label: data.name });
+        } else if (data.type === 'missionTypes') {
+          dropdowns.missionTypes.push({ value: data.value, label: data.name });
+        } else if (data.type === 'interventionTypes') {
+          dropdowns.interventionTypes.push({ value: data.value, label: data.name });
+        }
+      });
+
+      return dropdowns;
+    } catch (error) {
+      console.error('Erreur récupération dropdowns:', error);
+      return {
+        assignedTo: [],
+        locations: [],
+        roomTypes: [],
+        missionTypes: [],
+        interventionTypes: []
+      };
+    }
+  };
+
+  /**
+   * Analyser les données sans les importer
+   * Retourne les données parsées + les nouvelles valeurs détectées
+   */
+  const analyzeImportData = async (file) => {
+    try {
+      // Lire le fichier
+      console.log('📖 Analyse du fichier Excel...');
+      const rawData = await readExcelFile(file);
+
+      console.log('📊 Données brutes lues:', rawData.length, 'lignes');
+      
+      // ✅ DEBUG : Afficher la première ligne pour voir les colonnes
+      if (rawData.length > 0) {
+        console.log('🔍 Colonnes détectées:', Object.keys(rawData[0]));
+        console.log('🔍 Première ligne:', rawData[0]);
+      }
+
+      if (rawData.length === 0) {
+        throw new Error('Aucune donnée à analyser');
+      }
+
+      // Récupérer les dropdowns existants
+      const existingDropdowns = await getExistingDropdowns();
+
+      // Parser les données (mais ne pas les importer)
+      const parsedData = [];
+      const errors = [];
+
+      for (let i = 0; i < rawData.length; i++) {
+        const row = rawData[i];
+        const rowNumber = i + 2; // +2 car ligne 1 = headers
+
+        // Valider la ligne
+        const rowErrors = validateRow(row, rowNumber);
+        if (rowErrors.length > 0) {
+          console.warn(`⚠️ Erreurs ligne ${rowNumber}:`, rowErrors);
+          errors.push(...rowErrors);
+          continue;
+        }
+
+        // Mapper les données
+        const mapped = mapExcelToFirestore(row, user);
+        if (mapped) {
+          parsedData.push(mapped);
+          console.log(`✅ Ligne ${rowNumber} mappée:`, {
+            location: mapped.location,
+            assignedToName: mapped.assignedToName,
+            status: mapped.status
+          });
+        }
+      }
+
+      console.log(`📦 Résultat analyse: ${parsedData.length} lignes valides, ${errors.length} erreurs`);
+
+      return {
+        success: true,
+        parsedData,
+        existingDropdowns,
+        errors,
+        total: rawData.length
+      };
+
+    } catch (error) {
+      console.error('❌ Erreur lors de l\'analyse:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  };
+
+  /**
    * Trouver ou créer un technicien
    */
   const findOrCreateTechnician = async (technicianName) => {
@@ -237,9 +353,75 @@ export const useExcelImport = (user) => {
   };
 
   /**
-   * Importer les données
+   * Créer les nouvelles valeurs approuvées dans les dropdowns
    */
-  const importData = async (file) => {
+  const createApprovedDropdownValues = async (approvedNewValues) => {
+    if (!approvedNewValues || Object.keys(approvedNewValues).length === 0) {
+      return;
+    }
+
+    const batch = writeBatch(db);
+    const adminDataRef = collection(db, 'adminData');
+
+    // Techniciens
+    if (approvedNewValues.assignedTo) {
+      for (const techName of approvedNewValues.assignedTo) {
+        const newTechRef = doc(adminDataRef);
+        batch.set(newTechRef, {
+          name: techName,
+          type: 'technicians',
+          active: true,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid,
+          createdByName: user.name || 'Import'
+        });
+        console.log(`✅ Nouveau technicien approuvé: ${techName}`);
+      }
+    }
+
+    // Localisations
+    if (approvedNewValues.location) {
+      for (const locName of approvedNewValues.location) {
+        const newLocRef = doc(adminDataRef);
+        batch.set(newLocRef, {
+          name: locName,
+          type: 'locations',
+          active: true,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid,
+          createdByName: user.name || 'Import'
+        });
+        console.log(`✅ Nouvelle localisation approuvée: ${locName}`);
+      }
+    }
+
+    // Types de local (roomTypes)
+    if (approvedNewValues.roomType) {
+      for (const roomType of approvedNewValues.roomType) {
+        const newRoomTypeRef = doc(adminDataRef);
+        batch.set(newRoomTypeRef, {
+          name: roomType,
+          value: roomType.toLowerCase().replace(/\s+/g, '-'),
+          type: 'roomTypes',
+          active: true,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid,
+          createdByName: user.name || 'Import'
+        });
+        console.log(`✅ Nouveau type de local approuvé: ${roomType}`);
+      }
+    }
+
+    // Commit toutes les nouvelles valeurs
+    await batch.commit();
+  };
+
+  /**
+   * Importer les données (version avec validation)
+   * @param {File|Array} fileOrData - Fichier Excel OU tableau de données déjà validées
+   * @param {Object} approvedNewValues - Nouvelles valeurs approuvées par l'utilisateur
+   */
+  const importData = async (fileOrData, approvedNewValues = {}) => {
     if (!user) {
       addToast({
         type: 'error',
@@ -262,94 +444,95 @@ export const useExcelImport = (user) => {
     setProgress(0);
 
     try {
-      // Lire le fichier Excel
-      console.log('📖 Lecture du fichier Excel...');
-      const rawData = await readExcelFile(file);
+      let interventionsToImport = [];
 
-      console.log('📊 Données lues:', rawData.length, 'lignes');
+      // Cas 1 : On reçoit un tableau de données pré-validées
+      if (Array.isArray(fileOrData)) {
+        interventionsToImport = fileOrData;
+        console.log(`📦 Import de ${interventionsToImport.length} interventions pré-validées`);
+      } 
+      // Cas 2 : On reçoit un fichier (ancien comportement)
+      else {
+        console.log('📖 Lecture du fichier Excel...');
+        const rawData = await readExcelFile(fileOrData);
+        const totalRows = rawData.length;
 
-      if (rawData.length === 0) {
-        throw new Error('Aucune donnée à importer');
-      }
+        console.log('📊 Données lues:', totalRows, 'lignes');
 
-      const totalRows = rawData.length;
-      const imported = [];
-      const errors = [];
+        if (totalRows === 0) {
+          throw new Error('Aucune donnée à importer');
+        }
 
-      // Traiter chaque ligne
-      for (let i = 0; i < rawData.length; i++) {
-        const row = rawData[i];
-        const rowNumber = i + 2; // +2 car ligne 1 = headers
+        // Parser et valider
+        const errorDetails = [];
+        for (let i = 0; i < rawData.length; i++) {
+          const row = rawData[i];
+          const rowNumber = i + 2;
 
-        try {
-          // Valider la ligne
-          const validationErrors = validateRow(row, rowNumber);
-          if (validationErrors.length > 0) {
-            errors.push({
-              row: rowNumber,
-              data: row,
-              error: validationErrors.join(', ')
-            });
-            setProgress(Math.round(((i + 1) / totalRows) * 100));
+          const rowErrors = validateRow(row, rowNumber);
+          if (rowErrors.length > 0) {
+            errorDetails.push(...rowErrors);
             continue;
           }
 
-          // Mapper les données
-          const interventionData = mapExcelToFirestore(row, user);
-
-          // Trouver le technicien
-          const technicianName = row.Intervenant || row.intervenant;
-          if (technicianName) {
-            const technicianId = await findOrCreateTechnician(technicianName);
-            if (technicianId) {
-              interventionData.assignedTo = technicianId;
-            }
+          const mapped = mapExcelToFirestore(row, user);
+          if (mapped) {
+            interventionsToImport.push(mapped);
           }
 
-          // Ajouter à Firestore
-          await addDoc(collection(db, 'interventions'), interventionData);
-
-          imported.push(interventionData);
-
-          // Mettre à jour la progression
-          setProgress(Math.round(((i + 1) / totalRows) * 100));
-
-        } catch (error) {
-          console.error(`❌ Erreur ligne ${rowNumber}:`, error);
-          errors.push({
-            row: rowNumber,
-            data: row,
-            error: error.message
-          });
-          setProgress(Math.round(((i + 1) / totalRows) * 100));
+          setProgress(Math.round(((i + 1) / totalRows) * 30));
         }
       }
 
-      // Afficher le résultat
-      const message = `Import terminé : ${imported.length}/${totalRows} interventions importées`;
+      // 1. Créer les nouvelles valeurs approuvées dans les dropdowns
+      console.log('➕ Création des nouvelles valeurs approuvées...');
+      await createApprovedDropdownValues(approvedNewValues);
+
+      // 2. Importer les interventions
+      console.log(`💾 Import de ${interventionsToImport.length} interventions...`);
       
-      if (errors.length === 0) {
-        addToast({
-          type: 'success',
-          title: 'Import réussi ✅',
-          message: message,
-          duration: 8000
-        });
-      } else {
-        addToast({
-          type: 'warning',
-          title: 'Import partiel ⚠️',
-          message: `${message}. ${errors.length} erreur(s) détectée(s).`,
-          duration: 10000
-        });
+      const batch = writeBatch(db);
+      const interventionsRef = collection(db, 'interventions');
+      let imported = 0;
+
+      for (let i = 0; i < interventionsToImport.length; i++) {
+        const intervention = interventionsToImport[i];
+        
+        // Trouver ou créer le technicien
+        const technicianId = await findOrCreateTechnician(intervention.assignedToName);
+        if (technicianId) {
+          intervention.assignedTo = technicianId;
+        }
+
+        const newInterventionRef = doc(interventionsRef);
+        batch.set(newInterventionRef, intervention);
+        imported++;
+
+        setProgress(30 + Math.round((i / interventionsToImport.length) * 70));
+
+        // Commit par lots de 450 (limite Firestore = 500)
+        if ((i + 1) % 450 === 0) {
+          await batch.commit();
+          console.log(`✅ Lot de ${i + 1} interventions importées`);
+        }
       }
+
+      // Commit final
+      await batch.commit();
+
+      setProgress(100);
+
+      addToast({
+        type: 'success',
+        title: 'Import réussi',
+        message: `${imported} intervention(s) importée(s) avec succès`
+      });
 
       return {
         success: true,
-        imported: imported.length,
-        errors: errors.length,
-        total: totalRows,
-        errorDetails: errors
+        imported,
+        total: interventionsToImport.length,
+        errors: []
       };
 
     } catch (error) {
@@ -357,13 +540,14 @@ export const useExcelImport = (user) => {
       
       addToast({
         type: 'error',
-        title: 'Erreur import',
+        title: 'Erreur d\'import',
         message: error.message
       });
 
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        imported: 0
       };
     } finally {
       setImporting(false);
@@ -574,6 +758,7 @@ export const useExcelImport = (user) => {
     progress,
     deleting,
     importData,
+    analyzeImportData,
     deleteAllInterventions,
     downloadTemplate
   };
