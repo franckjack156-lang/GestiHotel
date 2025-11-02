@@ -109,8 +109,10 @@ const RoomsManagementView = ({
     
     // Convertir en tableau et trier
     return Array.from(roomsMap.values()).sort((a, b) => {
-      return a.name.localeCompare(b.name, 'fr', { numeric: true });
-    });
+       const nameA = String(a.name || '');
+  const nameB = String(b.name || '');
+  return nameA.localeCompare(nameB, 'fr', { numeric: true });
+});
   }, [blockedRooms, interventions, dropdowns]);
 
   // ✅ NOUVEAU : Filtrer les chambres par statut ET recherche

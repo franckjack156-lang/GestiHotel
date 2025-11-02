@@ -1,4 +1,4 @@
-// src/hooks/useExcelImport.js - VERSION CORRIGÉE
+// src/hooks/useExcelImport.js - VERSION CORRIGÉE avec comparaison insensible à la casse
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { 
@@ -7,7 +7,9 @@ import {
   getDocs, 
   writeBatch,
   doc,
-  serverTimestamp 
+  serverTimestamp,
+  deleteDoc,
+  query
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useToast } from '../contexts/ToastContext';
@@ -110,27 +112,33 @@ export const useExcelImport = (user) => {
     }
 
     return {
-      // Informations de base
-      location: row.Localisation || row.localisation || '',
-      roomType: (row['Type Local'] || row['type_local'] || 'chambre').toLowerCase(),
+      // Informations de base - ✅ CORRECTION : Garder la casse originale, juste trim
+      location: (row.Localisation || row.localisation || '').trim(),
+      roomType: (row['Type Local'] || row['type_local'] || 'chambre').toLowerCase().trim(),
       
       // Mission
       missionSummary: row.Mission || row.mission || '',
       missionComment: row['Commentaires Mission'] || row['commentaires_mission'] || '',
-      missionType: (row['Type Mission'] || row['type_mission'] || '').toLowerCase().replace(/é/g, 'e').replace(/è/g, 'e'),
+      missionType: (row['Type Mission'] || row['type_mission'] || '')
+        .toLowerCase()
+        .trim()
+        .replace(/é/g, 'e')
+        .replace(/è/g, 'e'),
       
       // Intervention
-      interventionType: (row['Type Intervention'] || row['type_intervention'] || 'reparation').toLowerCase(),
+      interventionType: (row['Type Intervention'] || row['type_intervention'] || 'reparation')
+        .toLowerCase()
+        .trim(),
       priority: priority,
       status: status,
       
-      // Assignation
-      assignedToName: row.Intervenant || row.intervenant || '',
+      // Assignation - ✅ CORRECTION : Garder la casse originale pour les noms propres
+      assignedToName: (row.Intervenant || row.intervenant || '').trim(),
       assignedTo: '', // À remplir avec l'ID du technicien si trouvé
       techComment: row['Commentaire Intervenant'] || row['commentaire_intervenant'] || '',
       
-      // Créateur
-      creatorName: row.Demandeur || row.demandeur || 'Import Excel',
+      // Créateur - ✅ CORRECTION : Garder la casse originale
+      creatorName: (row.Demandeur || row.demandeur || 'Import Excel').trim(),
       createdBy: user?.uid || 'import',
       createdByName: user?.name || 'Import Excel',
       
@@ -157,7 +165,7 @@ export const useExcelImport = (user) => {
   };
 
   /**
-   * Valider les données
+   * Valider les données d'une ligne
    */
   const validateRow = (row, rowNumber) => {
     const errors = [];
@@ -193,45 +201,99 @@ export const useExcelImport = (user) => {
   };
 
   /**
-   * Récupérer les dropdowns existants depuis Firestore
+   * ✅ CORRECTION MAJEURE : Récupérer les dropdowns existants avec normalisation
+   * Lit depuis dropdownOptions ET adminData selon le type de données
    */
   const getExistingDropdowns = async () => {
     try {
-      const adminDataSnapshot = await getDocs(collection(db, 'adminData'));
-      
       const dropdowns = {
-        assignedTo: [],
-        locations: [],
-        roomTypes: [],
-        missionTypes: [],
-        interventionTypes: []
+        assignedToName: [],    // Techniciens depuis adminData
+        location: [],          // Localisations depuis dropdownOptions
+        roomType: [],          // Types de local depuis dropdownOptions
+        missionType: [],       // Types de mission depuis dropdownOptions
+        interventionType: [],  // Types d'intervention depuis dropdownOptions
+        creatorName: []        // Créateurs depuis dropdownOptions
       };
 
+      // ✅ 1. LIRE DEPUIS adminData (techniciens uniquement)
+      const adminDataSnapshot = await getDocs(collection(db, 'adminData'));
+      
       adminDataSnapshot.forEach(doc => {
         const data = doc.data();
         
-        if (data.type === 'technicians' && data.active !== false) {
-          dropdowns.assignedTo.push(data.name);
-        } else if (data.type === 'locations') {
-          dropdowns.locations.push(data.name);
-        } else if (data.type === 'roomTypes') {
-          dropdowns.roomTypes.push({ value: data.value, label: data.name });
-        } else if (data.type === 'missionTypes') {
-          dropdowns.missionTypes.push({ value: data.value, label: data.name });
-        } else if (data.type === 'interventionTypes') {
-          dropdowns.interventionTypes.push({ value: data.value, label: data.name });
+        // Techniciens
+        if (data.type === 'technicians' && data.active !== false && data.name) {
+          dropdowns.assignedToName.push(data.name.toLowerCase().trim());
         }
+      });
+
+      // ✅ 2. LIRE DEPUIS dropdownOptions (localisations, types, créateurs)
+      const dropdownOptionsSnapshot = await getDocs(collection(db, 'dropdownOptions'));
+      
+      dropdownOptionsSnapshot.forEach(doc => {
+        const data = doc.data();
+        
+        // Localisations
+        if (data.category === 'locations' && data.active !== false && data.name) {
+          dropdowns.location.push(data.name.toLowerCase().trim());
+        }
+        // Types de local
+        else if (data.category === 'roomTypes' && data.active !== false) {
+          if (data.value) {
+            dropdowns.roomType.push(data.value.toLowerCase().trim());
+          }
+          if (data.name) {
+            dropdowns.roomType.push(data.name.toLowerCase().trim());
+          }
+        }
+        // Types de mission
+        else if (data.category === 'missionTypes' && data.active !== false) {
+          if (data.value) {
+            dropdowns.missionType.push(data.value.toLowerCase().trim());
+          }
+          if (data.name) {
+            dropdowns.missionType.push(data.name.toLowerCase().trim());
+          }
+        }
+        // Types d'intervention
+        else if (data.category === 'interventionTypes' && data.active !== false) {
+          if (data.value) {
+            dropdowns.interventionType.push(data.value.toLowerCase().trim());
+          }
+          if (data.name) {
+            dropdowns.interventionType.push(data.name.toLowerCase().trim());
+          }
+        }
+        // Créateurs
+        else if (data.category === 'creators' && data.active !== false && data.name) {
+          dropdowns.creatorName.push(data.name.toLowerCase().trim());
+        }
+      });
+
+      // ✅ Supprimer les doublons avec Set
+      Object.keys(dropdowns).forEach(key => {
+        dropdowns[key] = [...new Set(dropdowns[key])];
+      });
+
+      console.log('📊 Dropdowns chargés depuis DEUX collections:', {
+        assignedToName: `${dropdowns.assignedToName.length} (adminData)`,
+        location: `${dropdowns.location.length} (dropdownOptions)`,
+        roomType: `${dropdowns.roomType.length} (dropdownOptions)`,
+        missionType: `${dropdowns.missionType.length} (dropdownOptions)`,
+        interventionType: `${dropdowns.interventionType.length} (dropdownOptions)`,
+        creatorName: `${dropdowns.creatorName.length} (dropdownOptions)`
       });
 
       return dropdowns;
     } catch (error) {
-      console.error('Erreur récupération dropdowns:', error);
+      console.error('❌ Erreur récupération dropdowns:', error);
       return {
-        assignedTo: [],
-        locations: [],
-        roomTypes: [],
-        missionTypes: [],
-        interventionTypes: []
+        assignedToName: [],
+        location: [],
+        roomType: [],
+        missionType: [],
+        interventionType: [],
+        creatorName: []
       };
     }
   };
@@ -284,6 +346,7 @@ export const useExcelImport = (user) => {
           console.log(`✅ Ligne ${rowNumber} mappée:`, {
             location: mapped.location,
             assignedToName: mapped.assignedToName,
+            roomType: mapped.roomType,
             status: mapped.status
           });
         }
@@ -317,15 +380,18 @@ export const useExcelImport = (user) => {
     }
 
     try {
-      // Chercher le technicien dans adminData
+      // Chercher le technicien dans adminData (comparaison insensible à la casse)
       const techniciansRef = collection(db, 'adminData');
       const snapshot = await getDocs(techniciansRef);
       
+      const normalizedSearch = technicianName.toLowerCase().trim();
       let technicianId = null;
+      
       snapshot.forEach(doc => {
         const data = doc.data();
         if (data.type === 'technicians' && 
-            data.name.toLowerCase() === technicianName.toLowerCase().trim()) {
+            data.name && 
+            data.name.toLowerCase().trim() === normalizedSearch) {
           technicianId = doc.id;
         }
       });
@@ -353,22 +419,25 @@ export const useExcelImport = (user) => {
   };
 
   /**
-   * Créer les nouvelles valeurs approuvées dans les dropdowns
+   * ✅ CORRECTION MAJEURE : Créer dans la bonne collection (dropdownOptions OU adminData)
    */
   const createApprovedDropdownValues = async (approvedNewValues) => {
     if (!approvedNewValues || Object.keys(approvedNewValues).length === 0) {
+      console.log('⏭️ Aucune nouvelle valeur à créer');
       return;
     }
 
     const batch = writeBatch(db);
     const adminDataRef = collection(db, 'adminData');
+    const dropdownOptionsRef = collection(db, 'dropdownOptions');
+    let createdCount = 0;
 
-    // Techniciens
-    if (approvedNewValues.assignedTo) {
-      for (const techName of approvedNewValues.assignedTo) {
+    // ✅ TECHNICIENS → adminData
+    if (approvedNewValues.assignedToName && Array.isArray(approvedNewValues.assignedToName)) {
+      for (const techName of approvedNewValues.assignedToName) {
         const newTechRef = doc(adminDataRef);
         batch.set(newTechRef, {
-          name: techName,
+          name: techName.trim(),
           type: 'technicians',
           active: true,
           createdAt: serverTimestamp(),
@@ -376,44 +445,103 @@ export const useExcelImport = (user) => {
           createdByName: user.name || 'Import'
         });
         console.log(`✅ Nouveau technicien approuvé: ${techName}`);
+        createdCount++;
       }
     }
 
-    // Localisations
-    if (approvedNewValues.location) {
+    // ✅ LOCALISATIONS → dropdownOptions
+    if (approvedNewValues.location && Array.isArray(approvedNewValues.location)) {
       for (const locName of approvedNewValues.location) {
-        const newLocRef = doc(adminDataRef);
+        const newLocRef = doc(dropdownOptionsRef);
         batch.set(newLocRef, {
-          name: locName,
-          type: 'locations',
+          name: locName.trim(),
+          category: 'locations',
           active: true,
           createdAt: serverTimestamp(),
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
         console.log(`✅ Nouvelle localisation approuvée: ${locName}`);
+        createdCount++;
       }
     }
 
-    // Types de local (roomTypes)
-    if (approvedNewValues.roomType) {
+    // ✅ TYPES DE LOCAL → dropdownOptions
+    if (approvedNewValues.roomType && Array.isArray(approvedNewValues.roomType)) {
       for (const roomType of approvedNewValues.roomType) {
-        const newRoomTypeRef = doc(adminDataRef);
+        const newRoomTypeRef = doc(dropdownOptionsRef);
         batch.set(newRoomTypeRef, {
-          name: roomType,
-          value: roomType.toLowerCase().replace(/\s+/g, '-'),
-          type: 'roomTypes',
+          name: roomType.charAt(0).toUpperCase() + roomType.slice(1).toLowerCase(),
+          value: roomType.toLowerCase().trim().replace(/\s+/g, '-'),
+          category: 'roomTypes',
           active: true,
           createdAt: serverTimestamp(),
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
         console.log(`✅ Nouveau type de local approuvé: ${roomType}`);
+        createdCount++;
+      }
+    }
+
+    // ✅ TYPES DE MISSION → dropdownOptions
+    if (approvedNewValues.missionType && Array.isArray(approvedNewValues.missionType)) {
+      for (const missionType of approvedNewValues.missionType) {
+        const newMissionTypeRef = doc(dropdownOptionsRef);
+        batch.set(newMissionTypeRef, {
+          name: missionType.charAt(0).toUpperCase() + missionType.slice(1).toLowerCase(),
+          value: missionType.toLowerCase().trim().replace(/\s+/g, '-'),
+          category: 'missionTypes',
+          active: true,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid,
+          createdByName: user.name || 'Import'
+        });
+        console.log(`✅ Nouveau type de mission approuvé: ${missionType}`);
+        createdCount++;
+      }
+    }
+
+    // ✅ TYPES D'INTERVENTION → dropdownOptions
+    if (approvedNewValues.interventionType && Array.isArray(approvedNewValues.interventionType)) {
+      for (const interventionType of approvedNewValues.interventionType) {
+        const newInterventionTypeRef = doc(dropdownOptionsRef);
+        batch.set(newInterventionTypeRef, {
+          name: interventionType.charAt(0).toUpperCase() + interventionType.slice(1).toLowerCase(),
+          value: interventionType.toLowerCase().trim().replace(/\s+/g, '-'),
+          category: 'interventionTypes',
+          active: true,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid,
+          createdByName: user.name || 'Import'
+        });
+        console.log(`✅ Nouveau type d'intervention approuvé: ${interventionType}`);
+        createdCount++;
+      }
+    }
+
+    // ✅ CRÉATEURS → dropdownOptions
+    if (approvedNewValues.creatorName && Array.isArray(approvedNewValues.creatorName)) {
+      for (const creatorName of approvedNewValues.creatorName) {
+        const newCreatorRef = doc(dropdownOptionsRef);
+        batch.set(newCreatorRef, {
+          name: creatorName.trim(),
+          category: 'creators',
+          active: true,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid,
+          createdByName: user.name || 'Import'
+        });
+        console.log(`✅ Nouveau créateur approuvé: ${creatorName}`);
+        createdCount++;
       }
     }
 
     // Commit toutes les nouvelles valeurs
-    await batch.commit();
+    if (createdCount > 0) {
+      await batch.commit();
+      console.log(`✅ ${createdCount} nouvelle(s) valeur(s) créée(s)`);
+    }
   };
 
   /**
@@ -538,17 +666,24 @@ export const useExcelImport = (user) => {
     } catch (error) {
       console.error('❌ Erreur import:', error);
       
+      let errorMessage = 'Une erreur est survenue lors de l\'import.';
+      
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission refusée. Vérifiez vos droits Firestore.';
+      } else if (error.code === 'unavailable') {
+        errorMessage = 'Service temporairement indisponible. Réessayez.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       addToast({
         type: 'error',
-        title: 'Erreur d\'import',
-        message: error.message
+        title: 'Erreur import',
+        message: errorMessage,
+        duration: 8000
       });
 
-      return {
-        success: false,
-        error: error.message,
-        imported: 0
-      };
+      return { success: false, error: errorMessage };
     } finally {
       setImporting(false);
       setProgress(0);
@@ -559,20 +694,11 @@ export const useExcelImport = (user) => {
    * Supprimer toutes les interventions
    */
   const deleteAllInterventions = async () => {
-    if (!user) {
-      addToast({
-        type: 'error',
-        title: 'Non authentifié',
-        message: 'Vous devez être connecté'
-      });
-      return { success: false, error: 'Non authentifié' };
-    }
-
-    if (user.role !== 'superadmin') {
+    if (!user || (user.role !== 'superadmin' && user.role !== 'manager')) {
       addToast({
         type: 'error',
         title: 'Permission refusée',
-        message: 'Seuls les Super Admins peuvent supprimer toutes les données'
+        message: 'Seuls les admins peuvent supprimer toutes les interventions'
       });
       return { success: false, error: 'Permission refusée' };
     }
@@ -580,71 +706,34 @@ export const useExcelImport = (user) => {
     setDeleting(true);
 
     try {
-      console.log('🗑️ Démarrage de la suppression...');
-      
       const interventionsRef = collection(db, 'interventions');
-      const snapshot = await getDocs(interventionsRef);
+      const q = query(interventionsRef);
+      const snapshot = await getDocs(q);
 
-      console.log(`📊 ${snapshot.size} interventions trouvées`);
+      console.log(`🗑️ Suppression de ${snapshot.size} interventions...`);
 
-      if (snapshot.empty) {
-        addToast({
-          type: 'info',
-          title: 'Aucune donnée',
-          message: 'Il n\'y a aucune intervention à supprimer'
-        });
-        setDeleting(false);
-        return { success: true, deleted: 0 };
-      }
+      const batch = writeBatch(db);
+      let deleted = 0;
 
-      // Utiliser batch pour supprimer (max 500 par batch)
-      const BATCH_SIZE = 500;
-      const batches = [];
-      let currentBatch = writeBatch(db);
-      let operationCount = 0;
-      let totalCount = 0;
-
-      snapshot.forEach((document) => {
-        currentBatch.delete(doc(db, 'interventions', document.id));
-        operationCount++;
-        totalCount++;
-
-        // Si on atteint 500 opérations, créer un nouveau batch
-        if (operationCount === BATCH_SIZE) {
-          batches.push(currentBatch);
-          currentBatch = writeBatch(db);
-          operationCount = 0;
-        }
+      snapshot.forEach((docSnapshot) => {
+        batch.delete(doc(db, 'interventions', docSnapshot.id));
+        deleted++;
       });
 
-      // Ajouter le dernier batch s'il contient des opérations
-      if (operationCount > 0) {
-        batches.push(currentBatch);
-      }
-
-      console.log(`📦 ${batches.length} batch(es) à exécuter`);
-
-      // Exécuter tous les batches séquentiellement pour éviter les problèmes
-      for (let i = 0; i < batches.length; i++) {
-        console.log(`⏳ Exécution batch ${i + 1}/${batches.length}...`);
-        await batches[i].commit();
-      }
-
-      console.log(`✅ ${totalCount} interventions supprimées`);
+      await batch.commit();
 
       addToast({
         type: 'success',
         title: 'Suppression réussie',
-        message: `${totalCount} intervention(s) supprimée(s)`,
-        duration: 5000
+        message: `${deleted} intervention(s) supprimée(s)`
       });
 
-      return { success: true, deleted: totalCount };
+      return { success: true, deleted };
 
     } catch (error) {
       console.error('❌ Erreur suppression:', error);
-
-      let errorMessage = 'Erreur lors de la suppression';
+      
+      let errorMessage = 'Une erreur est survenue lors de la suppression.';
       
       if (error.code === 'permission-denied') {
         errorMessage = 'Permission refusée. Vérifiez vos droits Firestore.';
