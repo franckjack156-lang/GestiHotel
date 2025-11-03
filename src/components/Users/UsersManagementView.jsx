@@ -1,9 +1,25 @@
-// src/components/Users/UsersManagementView.jsx - VERSION COMPLETE CORRIGEE
+// ==========================================
+// 👥 USERSMANAGEMENTVIEW - VERSION CORRIGÉE
+// ==========================================
+// Gestion complète des utilisateurs avec toutes les données admin
 
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, Edit, Mail, Trash2, UserX, UserCheck } from 'lucide-react';
+import { 
+  Plus, 
+  Search, 
+  Filter, 
+  Edit, 
+  Mail, 
+  Trash2, 
+  UserX, 
+  UserCheck,
+  Key,
+  X,
+  AlertCircle,
+  CheckCircle
+} from 'lucide-react';
 import UserManagementModal from './UserManagementModal';
-import { useUnifiedData } from '../../hooks/useUnifiedData'; // ← IMPORTANT : Importer
+import { useUnifiedData } from '../../hooks/useUnifiedData';
 
 const UsersManagementView = ({ 
   users = [], 
@@ -16,22 +32,31 @@ const UsersManagementView = ({
   onActivateUser,  
   onResetPassword  
 }) => {
-  // ✨ NOUVEAU : Charger adminData
+  
+  // ✅ CORRECTION MAJEURE: Charger les données admin
   const { data: adminData, loading: adminDataLoading } = useUnifiedData(currentUser);
 
   const [selectedUser, setSelectedUser] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
 
-  // Filtrage des utilisateurs
+  // ==========================================
+  // 🔍 FILTRAGE DES UTILISATEURS
+  // ==========================================
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
+      // Recherche textuelle
       const matchesSearch = 
         user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.email?.toLowerCase().includes(searchTerm.toLowerCase());
       
+      // Filtre par rôle
       const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+      
+      // Filtre par statut
       const matchesStatus = statusFilter === 'all' || 
         (statusFilter === 'active' && user.active !== false) ||
         (statusFilter === 'inactive' && user.active === false);
@@ -40,6 +65,93 @@ const UsersManagementView = ({
     });
   }, [users, searchTerm, roleFilter, statusFilter]);
 
+  // ==========================================
+  // 📊 STATISTIQUES
+  // ==========================================
+  const stats = useMemo(() => {
+    return {
+      total: users.length,
+      active: users.filter(u => u.active !== false).length,
+      inactive: users.filter(u => u.active === false).length,
+      superadmin: users.filter(u => u.role === 'superadmin').length,
+      manager: users.filter(u => u.role === 'manager').length,
+      technician: users.filter(u => u.role === 'technician').length,
+      reception: users.filter(u => u.role === 'reception').length
+    };
+  }, [users]);
+
+  // ==========================================
+  // ✏️ ACTIONS SUR LES UTILISATEURS
+  // ==========================================
+  const handleCreateUser = () => {
+    setSelectedUser(null);
+    setIsModalOpen(true);
+  };
+
+  const handleEditUser = (user) => {
+    setSelectedUser(user);
+    setIsModalOpen(true);
+  };
+
+  const handleSaveUser = async (userData) => {
+    try {
+      if (selectedUser) {
+        // Mise à jour
+        await onUpdateUser({ ...selectedUser, ...userData });
+      } else {
+        // Création
+        await onAddUser(userData);
+      }
+      setIsModalOpen(false);
+      setSelectedUser(null);
+    } catch (error) {
+      console.error('Erreur sauvegarde utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const handleDeleteUser = async (user) => {
+    if (!showDeleteConfirm) {
+      setShowDeleteConfirm(user.id);
+      return;
+    }
+
+    try {
+      await onDeleteUser(user.id);
+      setShowDeleteConfirm(null);
+    } catch (error) {
+      console.error('Erreur suppression utilisateur:', error);
+      alert('Erreur lors de la suppression');
+    }
+  };
+
+  const handleToggleActive = async (user) => {
+    try {
+      await onUpdateUser({
+        ...user,
+        active: !user.active
+      });
+    } catch (error) {
+      console.error('Erreur changement statut:', error);
+      alert('Erreur lors du changement de statut');
+    }
+  };
+
+  const handleResetPassword = async (user) => {
+    if (confirm(`Réinitialiser le mot de passe de ${user.name || user.email} ?`)) {
+      try {
+        await onResetPassword(user.email);
+        alert('Email de réinitialisation envoyé !');
+      } catch (error) {
+        console.error('Erreur réinitialisation:', error);
+        alert('Erreur lors de la réinitialisation');
+      }
+    }
+  };
+
+  // ==========================================
+  // 🎨 HELPERS VISUELS
+  // ==========================================
   const getRoleLabel = (role) => {
     const roles = {
       superadmin: 'Super Admin',
@@ -62,66 +174,79 @@ const UsersManagementView = ({
 
   const getStatusColor = (active) => {
     return active 
-      ? 'text-green-600 dark:text-green-400'
-      : 'text-red-600 dark:text-red-400';
+      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' 
+      : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
   };
 
-  const canEditUser = (user) => {
-    if (currentUser.role === 'superadmin') return true;
-    if (currentUser.role === 'manager' && user.role !== 'superadmin') return true;
-    return currentUser.uid === user.id;
-  };
-
-  const canDeleteUser = (user) => {
-    if (user.id === currentUser.uid) return false;
-    if (currentUser.role === 'superadmin' && user.role !== 'superadmin') return true;
-    return currentUser.role === 'manager' && (user.role === 'reception' || user.role === 'technician');
-  };
-
+  // ==========================================
+  // 🎨 RENDER
+  // ==========================================
   return (
     <div className="space-y-6">
-      {/* En-tête */}
+      
+      {/* ========== EN-TÊTE ========== */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-            Gestion des Utilisateurs
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Gestion des utilisateurs
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            {users.length} utilisateur(s) au total
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            {filteredUsers.length} utilisateur{filteredUsers.length > 1 ? 's' : ''} 
+            {roleFilter !== 'all' && ` · ${getRoleLabel(roleFilter)}`}
+            {statusFilter !== 'all' && ` · ${statusFilter === 'active' ? 'Actifs' : 'Inactifs'}`}
           </p>
         </div>
-        
+
         <button
-          onClick={onAddUser}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+          onClick={handleCreateUser}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition flex items-center gap-2"
         >
-          <Plus size={16} />
-          Ajouter un utilisateur
+          <Plus size={20} />
+          Nouvel utilisateur
         </button>
       </div>
 
-      {/* Filtres et recherche */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Barre de recherche */}
-          <div className="md:col-span-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-              <input
-                type="text"
-                placeholder="Rechercher un utilisateur..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-              />
-            </div>
+      {/* ========== STATISTIQUES ========== */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Total</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Actifs</p>
+          <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.active}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Inactifs</p>
+          <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.inactive}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Techniciens</p>
+          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.technician}</p>
+        </div>
+      </div>
+
+      {/* ========== FILTRES ========== */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
+        <div className="flex flex-col lg:flex-row gap-4">
+          
+          {/* Recherche */}
+          <div className="flex-1 relative">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Rechercher par nom ou email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            />
           </div>
 
-          {/* Filtre par rôle */}
+          {/* Filtre rôle */}
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="all">Tous les rôles</option>
             <option value="superadmin">Super Admin</option>
@@ -130,136 +255,175 @@ const UsersManagementView = ({
             <option value="reception">Réception</option>
           </select>
 
-          {/* Filtre par statut */}
+          {/* Filtre statut */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="all">Tous les statuts</option>
-            <option value="active">Actif</option>
-            <option value="inactive">Inactif</option>
+            <option value="active">Actifs</option>
+            <option value="inactive">Inactifs</option>
           </select>
         </div>
       </div>
 
-      {/* Liste des utilisateurs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-        {filteredUsers.length > 0 ? (
-          <div className="divide-y divide-gray-200 dark:divide-gray-600">
-            {filteredUsers.map(user => (
-              <div key={user.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
-                    {/* Avatar */}
-                    <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center flex-shrink-0">
-                      {user.photoURL ? (
-                        <img 
-                          src={user.photoURL} 
-                          alt={user.name}
-                          className="w-12 h-12 rounded-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-lg">
-                          {user.name?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || '?'}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Infos utilisateur */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">
-                          {user.name}
-                        </h3>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
-                          {getRoleLabel(user.role)}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
-                        {user.email}
-                      </p>
-                      <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {user.department && (
-                          <span>📍 {user.department}</span>
-                        )}
-                        {user.phone && (
-                          <span>📞 {user.phone}</span>
-                        )}
-                        <span className={`font-medium ${getStatusColor(user.active !== false)}`}>
-                          {user.active !== false ? '✓ Actif' : '✗ Inactif'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-                    {canEditUser(user) && (
-                      <>
-                        <button
-                          onClick={() => setSelectedUser(user)}
-                          className="p-2 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                          title="Modifier"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        
-                        {user.id !== currentUser.uid && (
-                          <button
-                            onClick={() => onUpdateUserPassword(user)}
-                            className="p-2 text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
-                            title="Modifier le mot de passe"
-                          >
-                            <Mail size={16} />
-                          </button>
-                        )}
-                      </>
-                    )}
-                    
-                    {canDeleteUser(user) && (
-                      <button
-                        onClick={() => onDeleteUser(user)}
-                        className="p-2 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                        title="Désactiver"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+      {/* ========== LISTE DES UTILISATEURS ========== */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+        {filteredUsers.length === 0 ? (
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+            <UserX size={48} className="mx-auto mb-3 opacity-50" />
+            <p>Aucun utilisateur trouvé</p>
           </div>
         ) : (
-          <div className="text-center py-12">
-            <div className="text-gray-400 dark:text-gray-500 mb-2">
-              <Search size={48} className="mx-auto" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Aucun utilisateur trouvé
-            </h3>
-            <p className="text-gray-500 dark:text-gray-400">
-              {searchTerm || roleFilter !== 'all' || statusFilter !== 'all'
-                ? 'Aucun utilisateur ne correspond à vos critères de recherche.'
-                : 'Commencez par ajouter votre premier utilisateur.'}
-            </p>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Utilisateur
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Rôle
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Statut
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Dernière connexion
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredUsers.map((user) => (
+                  <tr 
+                    key={user.id}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                  >
+                    {/* Utilisateur */}
+                    <td className="px-6 py-4">
+                      <div>
+                        <p className="font-medium text-gray-900 dark:text-white">
+                          {user.name || 'Sans nom'}
+                          {user.id === currentUser?.uid && (
+                            <span className="ml-2 text-xs text-indigo-600 dark:text-indigo-400">(Vous)</span>
+                          )}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
+                      </div>
+                    </td>
+
+                    {/* Rôle */}
+                    <td className="px-6 py-4">
+                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
+                        {getRoleLabel(user.role)}
+                      </span>
+                    </td>
+
+                    {/* Statut */}
+                    <td className="px-6 py-4">
+                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(user.active !== false)}`}>
+                        {user.active !== false ? 'Actif' : 'Inactif'}
+                      </span>
+                    </td>
+
+                    {/* Dernière connexion */}
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
+                      {user.lastLogin 
+                        ? new Date(user.lastLogin).toLocaleDateString('fr-FR') 
+                        : 'Jamais'}
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        
+                        {/* Éditer */}
+                        <button
+                          onClick={() => handleEditUser(user)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition"
+                          title="Éditer"
+                        >
+                          <Edit size={18} />
+                        </button>
+
+                        {/* Réinitialiser mot de passe */}
+                        <button
+                          onClick={() => handleResetPassword(user)}
+                          className="p-2 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded-lg transition"
+                          title="Réinitialiser le mot de passe"
+                        >
+                          <Key size={18} />
+                        </button>
+
+                        {/* Activer/Désactiver */}
+                        {user.id !== currentUser?.uid && (
+                          <button
+                            onClick={() => handleToggleActive(user)}
+                            className={`p-2 rounded-lg transition ${
+                              user.active !== false
+                                ? 'text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                                : 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20'
+                            }`}
+                            title={user.active !== false ? 'Désactiver' : 'Activer'}
+                          >
+                            {user.active !== false ? <UserX size={18} /> : <UserCheck size={18} />}
+                          </button>
+                        )}
+
+                        {/* Supprimer */}
+                        {user.id !== currentUser?.uid && (
+                          showDeleteConfirm === user.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleDeleteUser(user)}
+                                className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                                title="Confirmer la suppression"
+                              >
+                                <CheckCircle size={18} />
+                              </button>
+                              <button
+                                onClick={() => setShowDeleteConfirm(null)}
+                                className="p-2 text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition"
+                                title="Annuler"
+                              >
+                                <X size={18} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setShowDeleteConfirm(user.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                              title="Supprimer"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      {/* ✨ MODAL UTILISATEUR AVEC adminData */}
-      {selectedUser && (
+      {/* ========== MODAL DE GESTION ========== */}
+      {isModalOpen && (
         <UserManagementModal
-          isOpen={!!selectedUser}
-          onClose={() => setSelectedUser(null)}
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false);
+            setSelectedUser(null);
+          }}
           user={selectedUser}
-          onUpdateUser={onUpdateUser}  // ← ✅ Fonction de sauvegarde
-          onResetPassword={onResetPassword}  // ← ✅ Fonction de reset password
-          onDeleteUser={onDeleteUser}
-          onActivateUser={onActivateUser}  // ← ✅ Fonction d'activation
-          adminData={adminData}
-          currentUser={currentUser}
+          onSave={handleSaveUser}
+          adminData={adminData} // ✅ CORRECTION: Passer adminData au modal
         />
       )}
     </div>

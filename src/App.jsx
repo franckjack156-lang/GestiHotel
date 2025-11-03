@@ -313,14 +313,14 @@ const AppContent = () => {
                 />
               )}
 
-              {currentView === 'calendar' && (
-                <CalendarView
-                  interventions={interventions || []}
-                  users={users || []}
-                  onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
-                  onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
-                />
-              )}
+              {currentView === 'planning' && (
+  <CalendarView
+    interventions={interventions || []}
+    users={users || []}
+    onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
+    onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
+  />
+)}
 
               {currentView === 'users' && (
                 <UsersManagementView
