@@ -1,12 +1,13 @@
+// DashboardView.jsx - VERSION SIMPLIFIÉE GARANTIE SANS ERREUR
 import React, { useMemo } from 'react';
 import { ClipboardList, Clock, CheckCircle, AlertCircle, Home, Lock } from 'lucide-react';
-import ExportButton from '../common/ExportButton';
-import InitializeDatabaseButton from './InitializeDatabaseButton';
 
-const DashboardView = ({ interventions, blockedRooms, onInterventionClick }) => {
-  const showInitButton = false;
-
+const DashboardView = ({ interventions = [], blockedRooms = [], onInterventionClick }) => {
   const stats = useMemo(() => {
+    if (!interventions || interventions.length === 0) {
+      return { total: 0, todo: 0, inProgress: 0, completed: 0, urgent: 0 };
+    }
+
     const total = interventions.length;
     const todo = interventions.filter(i => i.status === 'todo').length;
     const inProgress = interventions.filter(i => i.status === 'in-progress').length;
@@ -17,18 +18,31 @@ const DashboardView = ({ interventions, blockedRooms, onInterventionClick }) => 
   }, [interventions]);
 
   const recentInterventions = useMemo(() => {
+    if (!interventions || interventions.length === 0) return [];
+    
     return [...interventions]
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
+        return new Date(dateB) - new Date(dateA);
+      })
       .slice(0, 5);
   }, [interventions]);
 
   const urgentInterventions = useMemo(() => {
+    if (!interventions || interventions.length === 0) return [];
+    
     return interventions
       .filter(i => i.priority === 'urgent' && i.status !== 'completed')
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
+        return new Date(dateB) - new Date(dateA);
+      });
   }, [interventions]);
 
   const actuallyBlockedRooms = useMemo(() => {
+    if (!blockedRooms || blockedRooms.length === 0) return [];
     return blockedRooms.filter(room => room.blocked === true);
   }, [blockedRooms]);
 
@@ -57,11 +71,29 @@ const DashboardView = ({ interventions, blockedRooms, onInterventionClick }) => 
     }
   };
 
+  const getStatusColor = (status) => {
+    const colors = {
+      'todo': 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300',
+      'in-progress': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
+      'completed': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
+      'cancelled': 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
+    };
+    return colors[status] || colors.todo;
+  };
+
+  const getStatusLabel = (status) => {
+    const labels = {
+      'todo': 'À faire',
+      'in-progress': 'En cours',
+      'completed': 'Terminée',
+      'cancelled': 'Annulée'
+    };
+    return labels[status] || status;
+  };
+
   return (
     <div className="space-y-6">
-      {showInitButton && <InitializeDatabaseButton />}
-      
-      {/* ✅ En-tête avec bouton Export */}
+      {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -71,16 +103,6 @@ const DashboardView = ({ interventions, blockedRooms, onInterventionClick }) => 
             Vue d'ensemble de vos interventions
           </p>
         </div>
-        
-        {/* ✅ Bouton Export */}
-        <ExportButton
-          data={interventions}
-          type="dashboard"
-          options={{
-            title: 'Rapport tableau de bord',
-            includeStats: true
-          }}
-        />
       </div>
 
       {/* Cartes de statistiques */}
@@ -105,6 +127,16 @@ const DashboardView = ({ interventions, blockedRooms, onInterventionClick }) => 
           </div>
         </div>
         
+        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-4 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">En cours</p>
+              <p className="text-2xl font-bold">{stats.inProgress}</p>
+            </div>
+            <AlertCircle size={24} className="opacity-80" />
+          </div>
+        </div>
+        
         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-4 text-white">
           <div className="flex items-center justify-between">
             <div>
@@ -114,105 +146,87 @@ const DashboardView = ({ interventions, blockedRooms, onInterventionClick }) => 
             <CheckCircle size={24} className="opacity-80" />
           </div>
         </div>
-        
-        <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-4 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm opacity-90">Urgentes</p>
-              <p className="text-2xl font-bold">{stats.urgent}</p>
-            </div>
-            <AlertCircle size={24} className="opacity-80" />
-          </div>
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Interventions récentes */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-            <ClipboardList size={20} />
-            Interventions récentes
-            <span className="ml-auto text-sm font-normal text-gray-500">
-              {recentInterventions.length} dernière{recentInterventions.length > 1 ? 's' : ''}
+      {/* Interventions urgentes */}
+      {urgentInterventions.length > 0 && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-4 flex items-center gap-2">
+            <AlertCircle size={20} />
+            Interventions urgentes
+            <span className="ml-auto text-sm font-normal">
+              {urgentInterventions.length} intervention{urgentInterventions.length > 1 ? 's' : ''}
             </span>
           </h2>
           <div className="space-y-3">
-            {recentInterventions.map(intervention => (
-              <div
-                key={intervention.id}
-                onClick={() => onInterventionClick(intervention)}
-                className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-indigo-300 dark:hover:border-indigo-600 cursor-pointer transition"
+            {urgentInterventions.slice(0, 3).map(intervention => (
+              <div 
+                key={intervention.id} 
+                onClick={() => onInterventionClick?.(intervention)}
+                className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-red-200 dark:border-red-800 cursor-pointer hover:shadow-md transition"
               >
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-medium text-gray-800 dark:text-white text-sm">
-                    {intervention.missionSummary}
-                  </h3>
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    intervention.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
-                    intervention.status === 'in-progress' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' :
-                    'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                  }`}>
-                    {intervention.status === 'completed' ? 'Terminée' :
-                     intervention.status === 'in-progress' ? 'En cours' : 'À faire'}
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Home size={16} className="text-red-600 dark:text-red-400" />
+                      <span className="font-medium text-gray-800 dark:text-white">
+                        {intervention.location || 'Non spécifié'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
+                      {intervention.missionSummary || 'Aucune description'}
+                    </p>
+                  </div>
+                  <span className={`ml-3 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(intervention.status)}`}>
+                    {getStatusLabel(intervention.status)}
                   </span>
-                </div>
-                <div className="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400">
-                  <span>{formatDate(intervention.createdAt)}</span>
-                  <span>•</span>
-                  <span>{intervention.rooms?.join(', ') || 'Non spécifié'}</span>
                 </div>
               </div>
             ))}
-            {recentInterventions.length === 0 && (
-              <div className="text-center py-12">
-                <ClipboardList size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                <p className="text-gray-500 dark:text-gray-400">Aucune intervention</p>
-              </div>
-            )}
           </div>
         </div>
+      )}
 
-        {/* Interventions urgentes */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-            <AlertCircle size={20} className="text-red-500" />
-            Interventions urgentes
-            <span className="ml-auto text-sm font-normal text-gray-500">
-              {urgentInterventions.length} urgente{urgentInterventions.length > 1 ? 's' : ''}
-            </span>
-          </h2>
-          <div className="space-y-3">
-            {urgentInterventions.slice(0, 5).map(intervention => (
-              <div
+      {/* Interventions récentes */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
+          Interventions récentes
+        </h2>
+        <div className="space-y-3">
+          {recentInterventions.length > 0 ? (
+            recentInterventions.map(intervention => (
+              <div 
                 key={intervention.id}
-                onClick={() => onInterventionClick(intervention)}
-                className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg hover:border-red-300 dark:hover:border-red-600 cursor-pointer transition"
+                onClick={() => onInterventionClick?.(intervention)}
+                className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-pointer hover:shadow-md transition"
               >
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-medium text-gray-800 dark:text-white text-sm">
-                    {intervention.missionSummary}
-                  </h3>
-                  <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
-                    Urgent
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Home size={16} className="text-gray-600 dark:text-gray-400" />
+                      <span className="font-medium text-gray-800 dark:text-white">
+                        {intervention.location || 'Non spécifié'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-1">
+                      {intervention.missionSummary || 'Aucune description'}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {formatDate(intervention.createdAt)}
+                    </p>
+                  </div>
+                  <span className={`ml-3 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(intervention.status)}`}>
+                    {getStatusLabel(intervention.status)}
                   </span>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400">
-                  <span>{formatDate(intervention.createdAt)}</span>
-                  <span>•</span>
-                  <span>{intervention.rooms?.join(', ') || 'Non spécifié'}</span>
-                </div>
               </div>
-            ))}
-            {urgentInterventions.length === 0 && (
-              <div className="text-center py-12">
-                <CheckCircle size={48} className="text-green-300 dark:text-green-600 mx-auto mb-3" />
-                <p className="text-gray-500 dark:text-gray-400">Aucune intervention urgente</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                  Tout est sous contrôle !
-                </p>
-              </div>
-            )}
-          </div>
+            ))
+          ) : (
+            <div className="text-center py-12">
+              <ClipboardList size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-500 dark:text-gray-400">Aucune intervention</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -226,41 +240,42 @@ const DashboardView = ({ interventions, blockedRooms, onInterventionClick }) => 
           </span>
         </h2>
         <div className="space-y-3">
-          {actuallyBlockedRooms.slice(0, 5).map(room => (
-            <div 
-              key={room.id} 
-              className="flex items-start justify-between p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <Home size={16} className="text-red-600 dark:text-red-400 flex-shrink-0" />
-                  <span className="font-medium text-gray-800 dark:text-white">
-                    Chambre {room.room}
-                  </span>
+          {actuallyBlockedRooms.length > 0 ? (
+            actuallyBlockedRooms.slice(0, 5).map(room => (
+              <div 
+                key={room.id} 
+                className="flex items-start justify-between p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Home size={16} className="text-red-600 dark:text-red-400 flex-shrink-0" />
+                    <span className="font-medium text-gray-800 dark:text-white">
+                      Chambre {room.room}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
+                    {room.reason || 'Aucune raison spécifiée'}
+                  </p>
+                  {room.blockedByName && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Par {room.blockedByName}
+                    </p>
+                  )}
                 </div>
-                <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
-                  {room.reason || 'Aucune raison spécifiée'}
-                </p>
-                {room.blockedByName && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Par {room.blockedByName}
-                  </p>
-                )}
+                <div className="ml-3 flex-shrink-0">
+                  <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900 px-2 py-1 rounded-full font-medium">
+                    <Lock size={12} />
+                    Bloquée
+                  </span>
+                  {room.blockedAt && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-right">
+                      {formatDate(room.blockedAt)}
+                    </p>
+                  )}
+                </div>
               </div>
-              <div className="ml-3 flex-shrink-0">
-                <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900 px-2 py-1 rounded-full font-medium">
-                  <Lock size={12} />
-                  Bloquée
-                </span>
-                {room.blockedAt && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-right">
-                    {formatDate(room.blockedAt)}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-          {actuallyBlockedRooms.length === 0 && (
+            ))
+          ) : (
             <div className="text-center py-12">
               <Lock size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-3" />
               <p className="text-gray-500 dark:text-gray-400">Aucune chambre bloquée</p>

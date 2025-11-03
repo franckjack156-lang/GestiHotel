@@ -1,19 +1,20 @@
 // src/components/Notifications/NotificationPrompt.jsx
 import React, { useState, useEffect } from 'react';
 import { Bell, X, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
-import { useNotifications } from '../../hooks/useNotifications';
+import { useNotificationsPush } from '../../hooks/useNotifications'; // ✅ CORRECTION : Utiliser useNotificationsPush
 
 /**
- * Composant pour demander l'activation des notifications
+ * Composant pour demander l'activation des notifications push FCM
  * Affiche une bannière élégante en bas à droite
+ * ✅ CORRIGÉ : Utilise le bon hook avec isSupported
  */
 const NotificationPrompt = () => {
   const { 
     permission, 
     requestPermission, 
     isInitializing,
-    isSupported 
-  } = useNotifications();
+    isSupported // ✅ Maintenant disponible
+  } = useNotificationsPush();
   
   const [dismissed, setDismissed] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -82,50 +83,50 @@ const NotificationPrompt = () => {
                     les messages et les mises à jour importantes.
                   </p>
 
-                  {/* Avantages */}
+                  {/* Détails additionnels */}
                   {showDetails && (
-                    <ul className="mt-3 space-y-2 text-sm text-white/80">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle size={16} className="flex-shrink-0" />
-                        <span>Alertes instantanées pour vos interventions</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle size={16} className="flex-shrink-0" />
-                        <span>Notifications de nouveaux messages</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle size={16} className="flex-shrink-0" />
-                        <span>Mises à jour de statut importantes</span>
-                      </li>
-                    </ul>
+                    <div className="mt-3 space-y-2 text-white/80 text-xs">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle size={14} />
+                        <span>Alertes instantanées</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <CheckCircle size={14} />
+                        <span>Ne manquez aucune tâche importante</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <CheckCircle size={14} />
+                        <span>Désactivable à tout moment</span>
+                      </div>
+                    </div>
                   )}
 
                   {/* Actions */}
-                  <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                  <div className="flex items-center gap-2 mt-4">
                     <button
                       onClick={handleEnable}
                       disabled={isInitializing}
-                      className="flex-1 bg-white text-indigo-600 py-2.5 px-4 rounded-lg 
-                               font-semibold hover:bg-gray-50 transition 
+                      className="bg-white text-indigo-600 px-4 py-2 rounded-lg 
+                               font-semibold text-sm hover:bg-gray-50 transition
                                disabled:opacity-50 disabled:cursor-not-allowed
-                               flex items-center justify-center gap-2"
+                               flex items-center gap-2"
                     >
                       {isInitializing ? (
                         <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent" />
+                          <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
                           Activation...
                         </>
                       ) : (
                         <>
-                          <Bell size={18} />
+                          <Bell size={16} />
                           Activer
                         </>
                       )}
                     </button>
-
+                    
                     <button
                       onClick={() => setShowDetails(!showDetails)}
-                      className="text-white/90 hover:text-white text-sm font-medium transition"
+                      className="text-white/80 hover:text-white text-xs underline transition"
                     >
                       {showDetails ? 'Voir moins' : 'En savoir plus'}
                     </button>
@@ -156,12 +157,13 @@ export const NotificationBanner = () => {
   const { 
     permission, 
     requestPermission, 
-    isInitializing 
-  } = useNotifications();
+    isInitializing,
+    isSupported
+  } = useNotificationsPush();
   
   const [dismissed, setDismissed] = useState(false);
 
-  if (permission !== 'default' || dismissed) {
+  if (!isSupported || permission !== 'default' || dismissed) {
     return null;
   }
 
@@ -205,12 +207,13 @@ export const NotificationBadge = () => {
   const { 
     permission, 
     requestPermission, 
-    isInitializing 
-  } = useNotifications();
+    isInitializing,
+    isSupported
+  } = useNotificationsPush();
   
   const [dismissed, setDismissed] = useState(false);
 
-  if (permission !== 'default' || dismissed) {
+  if (!isSupported || permission !== 'default' || dismissed) {
     return null;
   }
 
@@ -224,9 +227,9 @@ export const NotificationBadge = () => {
                flex items-center gap-2 group"
       title="Activer les notifications"
     >
-      <Bell size={24} className={isInitializing ? 'animate-pulse' : 'group-hover:animate-bounce'} />
-      <span className="hidden group-hover:inline-block text-sm font-medium whitespace-nowrap">
-        Activer les notifications
+      <Bell size={24} className={isInitializing ? 'animate-pulse' : ''} />
+      <span className="hidden group-hover:inline text-sm font-medium">
+        {isInitializing ? 'Activation...' : 'Activer notifications'}
       </span>
     </button>
   );

@@ -5,11 +5,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/common/Toast';
 
 /**
- * Hook pour gérer les notifications push
+ * Hook pour gérer les notifications push (FCM)
+ * ✅ RENOMMÉ en useNotificationsPush pour éviter conflit avec NotificationContext
  */
-export const useNotifications = () => {
+export const useNotificationsPush = () => {
   const { user } = useAuth();
-  const { addToast } = useToast();
+  const toastHook = useToast();
   
   const [permission, setPermission] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
@@ -17,12 +18,17 @@ export const useNotifications = () => {
   const [token, setToken] = useState(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [error, setError] = useState(null);
+  
+  // ✅ CORRECTION : Ajouter isSupported
+  const [isSupported] = useState(() => {
+    return 'Notification' in window && 'serviceWorker' in navigator;
+  });
 
   /**
    * Initialiser les notifications pour l'utilisateur connecté
    */
   const initNotifications = useCallback(async () => {
-    if (!user || isInitializing) return;
+    if (!user || isInitializing || !isSupported) return;
 
     setIsInitializing(true);
     setError(null);
@@ -43,18 +49,20 @@ export const useNotifications = () => {
       // Écouter les messages en temps réel
       const unsubscribe = notificationService.onMessage((payload) => {
         // Afficher un toast dans l'app
-        addToast({
-          type: 'info',
-          message: payload.notification.title,
-          description: payload.notification.body,
-          duration: 8000,
-          action: payload.data?.interventionId ? {
-            label: 'Voir',
-            onClick: () => {
-              window.location.href = `/interventions/${payload.data.interventionId}`;
-            }
-          } : null
-        });
+        if (toastHook?.addToast) {
+          toastHook.addToast({
+            type: 'info',
+            message: payload.notification?.title || 'Nouvelle notification',
+            description: payload.notification?.body,
+            duration: 8000,
+            action: payload.data?.interventionId ? {
+              label: 'Voir',
+              onClick: () => {
+                window.location.href = `/interventions/${payload.data.interventionId}`;
+              }
+            } : null
+          });
+        }
       });
 
       return unsubscribe;
@@ -64,7 +72,7 @@ export const useNotifications = () => {
     } finally {
       setIsInitializing(false);
     }
-  }, [user, permission, addToast, isInitializing]);
+  }, [user, permission, toastHook, isInitializing, isSupported]);
 
   /**
    * Demander la permission de notifications
@@ -72,6 +80,11 @@ export const useNotifications = () => {
   const requestPermission = useCallback(async () => {
     if (!user) {
       setError('Utilisateur non connecté');
+      return false;
+    }
+
+    if (!isSupported) {
+      setError('Notifications non supportées par ce navigateur');
       return false;
     }
 
@@ -86,11 +99,11 @@ export const useNotifications = () => {
         setPermission('granted');
         await notificationService.saveTokenToUser(user.uid, fcmToken);
         
-        addToast({
-          type: 'success',
-          message: 'Notifications activées',
-          description: 'Vous recevrez désormais les alertes importantes'
-        });
+        if (toastHook?.success) {
+          toastHook.success('Notifications activées', {
+            description: 'Vous recevrez désormais les alertes importantes'
+          });
+        }
 
         // Initialiser l'écoute des messages
         await initNotifications();
@@ -100,11 +113,11 @@ export const useNotifications = () => {
         setPermission(Notification.permission);
         
         if (Notification.permission === 'denied') {
-          addToast({
-            type: 'warning',
-            message: 'Notifications bloquées',
-            description: 'Vous pouvez les réactiver dans les paramètres du navigateur'
-          });
+          if (toastHook?.warning) {
+            toastHook.warning('Notifications bloquées', {
+              description: 'Vous pouvez les réactiver dans les paramètres du navigateur'
+            });
+          }
         }
         
         return false;
@@ -113,17 +126,17 @@ export const useNotifications = () => {
       console.error('Erreur demande permission:', err);
       setError(err.message);
       
-      addToast({
-        type: 'error',
-        message: 'Erreur',
-        description: 'Impossible d\'activer les notifications'
-      });
+      if (toastHook?.error) {
+        toastHook.error('Erreur', {
+          description: 'Impossible d\'activer les notifications'
+        });
+      }
       
       return false;
     } finally {
       setIsInitializing(false);
     }
-  }, [user, addToast, initNotifications]);
+  }, [user, toastHook, initNotifications, isSupported]);
 
   /**
    * Désactiver les notifications
@@ -135,11 +148,11 @@ export const useNotifications = () => {
       await notificationService.removeToken(user.uid);
       setToken(null);
       
-      addToast({
-        type: 'info',
-        message: 'Notifications désactivées',
-        description: 'Vous ne recevrez plus d\'alertes'
-      });
+      if (toastHook?.info) {
+        toastHook.info('Notifications désactivées', {
+          description: 'Vous ne recevrez plus d\'alertes'
+        });
+      }
       
       return true;
     } catch (err) {
@@ -147,7 +160,7 @@ export const useNotifications = () => {
       setError(err.message);
       return false;
     }
-  }, [user, addToast]);
+  }, [user, toastHook]);
 
   /**
    * Envoyer une notification de test
@@ -160,64 +173,47 @@ export const useNotifications = () => {
         user.uid,
         '🧪 Notification test',
         'Si vous voyez ceci, les notifications fonctionnent parfaitement !',
-        { type: 'test' }
+        { priority: 'high' }
       );
-
-      addToast({
-        type: 'success',
-        message: 'Notification test envoyée',
-        description: 'Vous devriez la recevoir dans quelques secondes'
-      });
-
+      
+      if (toastHook?.success) {
+        toastHook.success('Notification test envoyée');
+      }
+      
       return true;
     } catch (err) {
       console.error('Erreur envoi notification test:', err);
+      setError(err.message);
       
-      addToast({
-        type: 'error',
-        message: 'Erreur',
-        description: 'Impossible d\'envoyer la notification test'
-      });
+      if (toastHook?.error) {
+        toastHook.error('Erreur envoi notification test');
+      }
       
       return false;
     }
-  }, [user, addToast]);
+  }, [user, toastHook]);
 
-  // Initialiser automatiquement si permission déjà accordée
+  /**
+   * Initialiser automatiquement au montage
+   */
   useEffect(() => {
-    if (user && permission === 'granted' && !token) {
+    if (user && permission === 'granted') {
       initNotifications();
     }
-  }, [user, permission, token, initNotifications]);
-
-  // Nettoyer à la déconnexion
-  useEffect(() => {
-    return () => {
-      if (!user && token) {
-        // L'utilisateur s'est déconnecté
-        setToken(null);
-        setPermission('default');
-      }
-    };
-  }, [user, token]);
+  }, [user, permission, initNotifications]);
 
   return {
-    // États
     permission,
     token,
-    isEnabled: permission === 'granted' && !!token,
     isInitializing,
     error,
-    
-    // Méthodes
+    isSupported, // ✅ AJOUTÉ
     requestPermission,
     disableNotifications,
     sendTestNotification,
-    
-    // Informations
-    isSupported: 'Notification' in window,
-    canRequest: permission === 'default'
+    initNotifications
   };
 };
 
-export default useNotifications;
+// ✅ Export par défaut pour compatibilité
+export default useNotificationsPush;
