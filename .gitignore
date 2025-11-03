@@ -1,3 +1,245 @@
-node_modules
-.env.local
+# =========================================
+# 🔒 FICHIERS SENSIBLES - NE JAMAIS COMMITER
+# =========================================
 .env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Credentials Firebase
+firebase-adminsdk-*.json
+service-account-*.json
+
+# =========================================
+# 📦 DEPENDENCIES
+# =========================================
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# =========================================
+# 🏗️ BUILD & DIST
+# =========================================
+dist/
+dist-ssr/
+dev-dist/
+build/
+*.local
+
+# Vite cache
+.vite/
+vite.config.js.timestamp-*
+
+# =========================================
+# 🧪 TESTING
+# =========================================
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+playwright-report/
+
+# Vitest
+.vitest/
+
+# =========================================
+# 🔥 FIREBASE
+# =========================================
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
+pubsub-debug.log
+functions-debug.log
+
+# Firebase emulator data
+firebase-export-*/
+firestore-export-*/
+
+# =========================================
+# 📝 LOGS
+# =========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =========================================
+# 🖥️ OS FILES
+# =========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# =========================================
+# 💻 EDITORS & IDEs
+# =========================================
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+.history/
+
+# JetBrains (WebStorm, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+Sessionx.vim
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =========================================
+# 📱 MOBILE
+# =========================================
+# React Native
+.expo/
+.expo-shared/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# =========================================
+# 🔧 TEMP & CACHE
+# =========================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.cache
+
+# Turbo
+.turbo/
+
+# Next.js (si utilisé)
+.next/
+out/
+
+# Nuxt (si utilisé)
+.nuxt/
+
+# =========================================
+# 📊 ANALYTICS & MONITORING
+# =========================================
+# Sentry
+.sentryclirc
+
+# Vercel
+.vercel
+
+# Netlify
+.netlify/
+
+# =========================================
+# 🎨 ASSETS GÉNÉRÉS
+# =========================================
+# Images optimisées
+*.webp.original
+*.jpg.original
+*.png.original
+
+# =========================================
+# 📚 DOCUMENTATION GÉNÉRÉE
+# =========================================
+docs/api/
+typedoc/
+jsdoc/
+
+# =========================================
+# 🔐 CERTIFICATES & KEYS
+# =========================================
+*.pem
+*.crt
+*.cer
+*.der
+*.pfx
+*.p12
+ssl/
+certs/
+
+# =========================================
+# 🧰 TOOLING
+# =========================================
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# Storybook
+storybook-static/
+
+# =========================================
+# 💼 BUSINESS & PRIVATE
+# =========================================
+# Documents privés
+private/
+confidential/
+client-data/
+backups/
+
+# Exports temporaires
+exports/*.xlsx
+exports/*.pdf
+exports/*.csv
+
+# =========================================
+# ⚡ PERFORMANCE
+# =========================================
+# Bundle analysis
+bundle-report.html
+stats.json
+.cache/
