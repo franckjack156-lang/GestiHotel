@@ -158,13 +158,19 @@ const AppContent = () => {
       orderBy('createdAt', 'desc')
     );
 
-    if (user.role === 'technician') {
-      interventionsQuery = query(
-        collection(db, 'interventions'),
-        where('assignedTo', '==', user.uid),
-        orderBy('createdAt', 'desc')
-      );
-    }
+    if (user.role === 'technician' && user.linkedTechnicianId) {
+    console.log('🔍 Filtrage par technicien:', user.linkedTechnicianId);
+    interventionsQuery = query(
+      collection(db, 'interventions'),
+      where('assignedTo', '==', user.linkedTechnicianId), // ← ID du document technicien
+      orderBy('createdAt', 'desc')
+    );
+  } else if (user.role === 'technician') {
+    // Si pas de lien technicien, aucune intervention
+    setInterventions([]);
+    setInterventionsLoading(false);
+    return;
+  }
 
     const unsubInterventions = onSnapshot(
       interventionsQuery,
@@ -589,11 +595,14 @@ const AppContent = () => {
             {currentView === 'users' && user.role === 'superadmin' && (
               <UsersManagementView
                 users={users}
+                currentUser={user}
                 onAddUser={handleCreateUser}
-                onEditUser={handleEditUser}
+                onEditUser={handleEditUser}  // ← Pour OUVRIR le modal
+                onUpdateUser={updateUser}  // ← ✅ AJOUTER : Pour SAUVEGARDER
                 onDeleteUser={handleDeleteUser}
                 onUpdateUserPassword={handleUpdateUserPassword}
-                currentUser={user}
+                onActivateUser={activateUser}  // ← ✅ AJOUTER
+                onResetPassword={resetPassword}  // ← ✅ AJOUTER
               />
             )}
 

@@ -8,10 +8,13 @@ import { useUnifiedData } from '../../hooks/useUnifiedData'; // ← IMPORTANT : 
 const UsersManagementView = ({ 
   users = [], 
   currentUser,
-  onEditUser,
+  onEditUser,  
+  onUpdateUser, 
   onAddUser,
   onUpdateUserPassword,
-  onDeleteUser
+  onDeleteUser,
+  onActivateUser,  
+  onResetPassword  
 }) => {
   // ✨ NOUVEAU : Charger adminData
   const { data: adminData, loading: adminDataLoading } = useUnifiedData(currentUser);
@@ -251,17 +254,12 @@ const UsersManagementView = ({
           isOpen={!!selectedUser}
           onClose={() => setSelectedUser(null)}
           user={selectedUser}
-          onUpdateUser={onEditUser}
-          onResetPassword={(userId) => {
-            // Logique de réinitialisation du mot de passe
-            console.log('Reset password for:', userId);
-          }}
+          onUpdateUser={onUpdateUser}  // ← ✅ Fonction de sauvegarde
+          onResetPassword={onResetPassword}  // ← ✅ Fonction de reset password
           onDeleteUser={onDeleteUser}
-          onActivateUser={(userId) => {
-            // Logique d'activation
-            console.log('Activate user:', userId);
-          }}
-          adminData={adminData} // ✅ PASSER adminData ICI
+          onActivateUser={onActivateUser}  // ← ✅ Fonction d'activation
+          adminData={adminData}
+          currentUser={currentUser}
         />
       )}
     </div>

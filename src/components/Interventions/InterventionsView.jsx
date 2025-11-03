@@ -66,55 +66,27 @@ const InterventionsView = ({
   // ✨ FILTRAGE INTELLIGENT - Phase 1 optimisée
   const filteredInterventions = useMemo(() => {
     let result = interventions;
-
-    // 1️⃣ Filtrage automatique par technicien assigné (CORRIGÉ ✅)
-    if (user?.linkedTechnicianId && !showAllInterventions) {
-      result = result.filter(intervention => {
-        // Vérifier si l'intervention est assignée à ce technicien
-        // On vérifie à la fois linkedTechnicianId et uid pour plus de flexibilité
-        return intervention.assignedTo === user.linkedTechnicianId || 
-               intervention.assignedTo === user.uid;
-      });
-    }
-
-    // 2️⃣ Filtrage par recherche (support multi-formats)
     if (searchTerm) {
-      const search = searchTerm.toLowerCase().trim();
-      result = result.filter(intervention => {
-        if (!intervention) return false;
-        
-        // Support ancien format (location string)
-        const oldLocation = (intervention.location || '').toLowerCase();
-        
-        // Support format intermédiaire (locations array)
-        const newLocations = intervention.locations 
-          ? intervention.locations.join(' ').toLowerCase() 
-          : '';
-        
-        // Support format actuel (rooms array)
-        const rooms = intervention.rooms
-          ? intervention.rooms.join(' ').toLowerCase()
-          : '';
-        
-        // Recherche dans tous les champs pertinents
-        return oldLocation.includes(search) ||
-               newLocations.includes(search) ||
-               rooms.includes(search) ||
-               (intervention.missionSummary?.toLowerCase() || '').includes(search) ||
-               (intervention.description?.toLowerCase() || '').includes(search) ||
-               (intervention.roomType?.toLowerCase() || '').includes(search) ||
-               (intervention.assignedToName?.toLowerCase() || '').includes(search) ||
-               (intervention.createdByName?.toLowerCase() || '').includes(search);
-      });
-    }
-    
-    // 3️⃣ Filtrage par statut
-    if (filterStatus !== 'all') {
-      result = result.filter(intervention => intervention.status === filterStatus);
-    }
-    
-    return result;
-  }, [interventions, user, showAllInterventions, searchTerm, filterStatus]);
+    result = result.filter(intervention => {
+      if (!intervention) return false;
+      
+      const locationText = intervention.locations 
+        ? intervention.locations.join(' ') 
+        : intervention.location || '';
+      
+      return locationText.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             (intervention.missionSummary?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+             (intervention.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+    });
+  }
+  
+  // Filtrage par statut
+  if (filterStatus !== 'all') {
+    result = result.filter(intervention => intervention.status === filterStatus);
+  }
+  
+  return result;
+}, [interventions, searchTerm, filterStatus]);
 
   const statusCounts = {
     all: interventions.length,

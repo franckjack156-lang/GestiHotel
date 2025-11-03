@@ -50,7 +50,7 @@ const NotificationPrompt = () => {
   return (
     <>
       {/* Bannière principale */}
-      <div className="fixed bottom-4 right-4 max-w-md z-50 animate-slide-up">
+      <div className="fixed bottom-4 right-4 max-w-md z-50 animate-in slide-in-from-bottom-5 duration-500">
         <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-2xl overflow-hidden">
           {/* Header avec close button */}
           <div className="relative">
@@ -145,24 +145,6 @@ const NotificationPrompt = () => {
           ⭐ Recommandé
         </div>
       </div>
-
-      {/* Styles pour l'animation */}
-      <style jsx>{`
-        @keyframes slide-up {
-          from {
-            transform: translateY(100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
-        }
-
-        .animate-slide-up {
-          animation: slide-up 0.5s ease-out;
-        }
-      `}</style>
     </>
   );
 };

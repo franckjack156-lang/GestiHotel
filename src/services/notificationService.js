@@ -1,5 +1,4 @@
 // src/services/notificationService.js
-
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { 
   collection, 
@@ -39,40 +38,73 @@ class NotificationService {
       }
 
       this.messaging = getMessaging(app);
+      console.log('✅ NotificationService initialisé');
       
-      // Écouter les messages en premier plan
-      onMessage(this.messaging, (payload) => {
-        this.handleForegroundMessage(payload);
-      });
     } catch (error) {
       console.error('Erreur initialisation notifications:', error);
     }
   }
 
   /**
+   * Obtenir le token FCM
+   */
+  async getToken() {
+    try {
+      if (!this.messaging) {
+        await this.init();
+      }
+
+      if (!VAPID_KEY) {
+        throw new Error('VAPID_KEY manquante dans les variables d\'environnement');
+      }
+
+      const token = await getToken(this.messaging, {
+        vapidKey: VAPID_KEY
+      });
+
+      if (token) {
+        this.currentToken = token;
+        console.log('✅ Token FCM obtenu');
+        return token;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Erreur obtention token FCM:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Demander la permission et obtenir le token
    */
-  async requestPermission(userId) {
+  async requestPermission() {
     try {
+      if (!this.isSupported()) {
+        throw new Error('Notifications non supportées');
+      }
+
       const permission = await Notification.requestPermission();
       
-      if (permission === 'granted') {
-        const token = await getToken(this.messaging, {
-          vapidKey: VAPID_KEY
-        });
-        
-        if (token) {
-          this.currentToken = token;
-          await this.saveTokenToFirestore(userId, token);
-          return { success: true, token };
-        }
-      } else {
-        return { success: false, error: 'Permission refusée' };
+      if (permission !== 'granted') {
+        return null;
       }
+
+      // Obtenir le token FCM
+      const token = await this.getToken();
+      return token;
+
     } catch (error) {
       console.error('Erreur demande permission:', error);
-      return { success: false, error: error.message };
+      throw error;
     }
+  }
+
+  /**
+   * Sauvegarder le token pour un utilisateur
+   */
+  async saveTokenToUser(userId, token) {
+    return await this.saveTokenToFirestore(userId, token);
   }
 
   /**
@@ -94,15 +126,18 @@ class NotificationService {
           createdAt: serverTimestamp(),
           lastUsed: serverTimestamp()
         });
+        console.log('✅ Token sauvegardé dans Firestore');
       } else {
         // Mettre à jour lastUsed
         const docId = snapshot.docs[0].id;
         await updateDoc(doc(db, 'fcmTokens', docId), {
           lastUsed: serverTimestamp()
         });
+        console.log('✅ Token mis à jour dans Firestore');
       }
     } catch (error) {
       console.error('Erreur sauvegarde token:', error);
+      throw error;
     }
   }
 
@@ -111,7 +146,7 @@ class NotificationService {
    */
   async removeToken(userId) {
     try {
-      if (!this.currentToken) return;
+      if (!this.currentToken) return true;
       
       const tokensRef = collection(db, 'fcmTokens');
       const q = query(
@@ -127,8 +162,31 @@ class NotificationService {
       }
       
       this.currentToken = null;
+      console.log('✅ Token supprimé');
+      return true;
     } catch (error) {
       console.error('Erreur suppression token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Écouter les messages (wrapper pour onMessage)
+   */
+  onMessage(callback) {
+    if (!this.messaging) {
+      console.warn('⚠️ Messaging non initialisé');
+      return () => {};
+    }
+
+    try {
+      return onMessage(this.messaging, (payload) => {
+        this.handleForegroundMessage(payload);
+        callback(payload);
+      });
+    } catch (error) {
+      console.error('Erreur onMessage:', error);
+      return () => {};
     }
   }
 
@@ -138,8 +196,8 @@ class NotificationService {
   handleForegroundMessage(payload) {
     const { notification, data } = payload;
     
-    // Créer une notification système
-    if (notification) {
+    // Créer une notification système si le document est caché
+    if (notification && document.hidden) {
       const notificationTitle = notification.title || 'GestiHôtel';
       const notificationOptions = {
         body: notification.body,
@@ -147,92 +205,26 @@ class NotificationService {
         badge: '/favicon.ico',
         tag: data?.interventionId || 'default',
         data: data,
-        requireInteraction: data?.priority === 'high',
-        actions: this.getNotificationActions(data?.type)
+        requireInteraction: data?.priority === 'high'
       };
 
-      // Vérifier si le document est visible
-      if (document.hidden) {
-        new Notification(notificationTitle, notificationOptions);
-      } else {
-        // Afficher un toast dans l'app
-        this.showInAppNotification({
-          title: notificationTitle,
-          message: notification.body,
-          type: this.getNotificationType(data?.type),
-          data
-        });
-      }
-    }
-    
-    // Sauvegarder dans Firestore
-    if (data?.userId) {
-      this.saveNotificationToFirestore(data.userId, {
-        title: notification?.title,
-        message: notification?.body,
-        type: data.type || 'system',
-        relatedId: data.interventionId,
-        data
-      });
+      new Notification(notificationTitle, notificationOptions);
     }
   }
 
   /**
-   * Obtenir les actions de notification selon le type
+   * Envoyer une notification (via Firestore, puis Cloud Function)
    */
-  getNotificationActions(type) {
-    const actions = {
-      intervention_assigned: [
-        { action: 'view', title: 'Voir', icon: '/icons/view.png' },
-        { action: 'accept', title: 'Accepter', icon: '/icons/check.png' }
-      ],
-      message_received: [
-        { action: 'reply', title: 'Répondre', icon: '/icons/reply.png' },
-        { action: 'view', title: 'Voir', icon: '/icons/view.png' }
-      ],
-      due_date_approaching: [
-        { action: 'view', title: 'Voir', icon: '/icons/view.png' },
-        { action: 'dismiss', title: 'Ignorer', icon: '/icons/dismiss.png' }
-      ]
+  async sendNotification(userId, title, body, data = {}) {
+    const notification = {
+      type: data.type || 'system',
+      title,
+      message: body,
+      priority: 'normal',
+      data
     };
-    
-    return actions[type] || [];
-  }
 
-  /**
-   * Convertir le type de notification pour l'UI
-   */
-  getNotificationType(type) {
-    const typeMap = {
-      intervention_assigned: 'info',
-      intervention_completed: 'success',
-      message_received: 'info',
-      due_date_approaching: 'warning',
-      system: 'info'
-    };
-    
-    return typeMap[type] || 'info';
-  }
-
-  /**
-   * Afficher une notification in-app (via le système de Toast)
-   */
-  showInAppNotification(notification) {
-    // Cette fonction sera appelée par le composant qui utilise ce service
-    // Elle déclenchera l'affichage d'un toast
-    if (window.showToast) {
-      window.showToast({
-        type: notification.type,
-        message: notification.title,
-        description: notification.message,
-        action: notification.data?.actionUrl ? {
-          label: 'Voir',
-          onClick: () => {
-            window.location.href = notification.data.actionUrl;
-          }
-        } : undefined
-      });
-    }
+    return await this.createNotification(userId, notification);
   }
 
   /**
@@ -260,232 +252,6 @@ class NotificationService {
       console.error('Erreur création notification:', error);
       return { success: false, error: error.message };
     }
-  }
-
-  /**
-   * Sauvegarder une notification reçue
-   */
-  async saveNotificationToFirestore(userId, notificationData) {
-    return await this.createNotification(userId, notificationData);
-  }
-
-  /**
-   * Obtenir les notifications d'un utilisateur
-   */
-  async getUserNotifications(userId, options = {}) {
-    const {
-      limitCount = 50,
-      unreadOnly = false
-    } = options;
-
-    try {
-      let q = query(
-        collection(db, 'notifications'),
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc'),
-        limit(limitCount)
-      );
-
-      if (unreadOnly) {
-        q = query(q, where('read', '==', false));
-      }
-
-      const snapshot = await getDocs(q);
-      const notifications = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate()
-      }));
-
-      return notifications;
-    } catch (error) {
-      console.error('Erreur récupération notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Marquer une notification comme lue
-   */
-  async markAsRead(notificationId) {
-    try {
-      await updateDoc(doc(db, 'notifications', notificationId), {
-        read: true,
-        readAt: serverTimestamp()
-      });
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur marquage notification:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Marquer toutes les notifications comme lues
-   */
-  async markAllAsRead(userId) {
-    try {
-      const q = query(
-        collection(db, 'notifications'),
-        where('userId', '==', userId),
-        where('read', '==', false)
-      );
-
-      const snapshot = await getDocs(q);
-      const batch = writeBatch(db);
-
-      snapshot.docs.forEach(docSnap => {
-        batch.update(doc(db, 'notifications', docSnap.id), {
-          read: true,
-          readAt: serverTimestamp()
-        });
-      });
-
-      await batch.commit();
-      return { success: true, count: snapshot.docs.length };
-    } catch (error) {
-      console.error('Erreur marquage notifications:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Supprimer une notification
-   */
-  async deleteNotification(notificationId) {
-    try {
-      await deleteDoc(doc(db, 'notifications', notificationId));
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur suppression notification:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Supprimer toutes les notifications d'un utilisateur
-   */
-  async deleteAllNotifications(userId) {
-    try {
-      const q = query(
-        collection(db, 'notifications'),
-        where('userId', '==', userId)
-      );
-
-      const snapshot = await getDocs(q);
-      const batch = writeBatch(db);
-
-      snapshot.docs.forEach(docSnap => {
-        batch.delete(doc(db, 'notifications', docSnap.id));
-      });
-
-      await batch.commit();
-      return { success: true, count: snapshot.docs.length };
-    } catch (error) {
-      console.error('Erreur suppression notifications:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Envoyer une notification à un utilisateur spécifique
-   * (Nécessite Cloud Function côté serveur pour l'envoi push réel)
-   */
-  async sendNotification(userId, notification) {
-    try {
-      // 1. Créer la notification dans Firestore
-      await this.createNotification(userId, notification);
-
-      // 2. Si l'utilisateur a des préférences push activées, 
-      //    déclencher une Cloud Function pour l'envoi push
-      // (La Cloud Function lira la notification et utilisera l'API FCM)
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Erreur envoi notification:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Envoyer une notification à plusieurs utilisateurs
-   */
-  async sendBulkNotifications(userIds, notification) {
-    try {
-      const promises = userIds.map(userId => 
-        this.sendNotification(userId, notification)
-      );
-      
-      await Promise.all(promises);
-      return { success: true, count: userIds.length };
-    } catch (error) {
-      console.error('Erreur envoi notifications groupées:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Notifier l'équipe d'une nouvelle intervention
-   */
-  async notifyNewIntervention(intervention, assignedUsers = []) {
-    const notification = {
-      type: 'intervention_assigned',
-      title: 'Nouvelle intervention',
-      message: `${intervention.missionSummary} - ${intervention.rooms?.join(', ')}`,
-      priority: intervention.priority === 'urgent' ? 'high' : 'normal',
-      relatedId: intervention.id,
-      actionUrl: `/interventions/${intervention.id}`,
-      icon: '🔧',
-      data: {
-        interventionId: intervention.id,
-        priority: intervention.priority
-      }
-    };
-
-    if (assignedUsers.length > 0) {
-      return await this.sendBulkNotifications(assignedUsers, notification);
-    }
-  }
-
-  /**
-   * Notifier de l'approche d'une deadline
-   */
-  async notifyDueDateApproaching(intervention, userId) {
-    const notification = {
-      type: 'due_date_approaching',
-      title: '⏰ Échéance proche',
-      message: `L'intervention "${intervention.missionSummary}" arrive à échéance`,
-      priority: 'high',
-      relatedId: intervention.id,
-      actionUrl: `/interventions/${intervention.id}`,
-      data: {
-        interventionId: intervention.id,
-        dueDate: intervention.dueDate
-      }
-    };
-
-    return await this.sendNotification(userId, notification);
-  }
-
-  /**
-   * Notifier d'un nouveau message
-   */
-  async notifyNewMessage(interventionId, message, recipientIds) {
-    const notification = {
-      type: 'message_received',
-      title: `💬 ${message.senderName}`,
-      message: message.text.substring(0, 100),
-      priority: 'normal',
-      relatedId: interventionId,
-      actionUrl: `/interventions/${interventionId}`,
-      data: {
-        interventionId,
-        messageId: message.id,
-        senderId: message.senderId
-      }
-    };
-
-    return await this.sendBulkNotifications(recipientIds, notification);
   }
 
   /**

@@ -187,6 +187,7 @@ export default defineConfig({
         manualChunks: {
           // Vendor chunks
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
           'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
           'ui-vendor': ['lucide-react', 'framer-motion'],
           'chart-vendor': ['recharts'],
@@ -269,17 +270,12 @@ export default defineConfig({
   // Optimizations
   optimizeDeps: {
     include: [
-      'react',
-      'react-dom',
-      'react-router-dom',
       'firebase/app',
       'firebase/auth',
       'firebase/firestore',
       'firebase/storage',
-      'lucide-react',
-      'date-fns'
-    ],
-    exclude: ['@firebase/firestore']
+      'firebase/functions'
+    ]
   },
   
   // Esbuild options
