@@ -16,10 +16,13 @@ import { useUnifiedData } from './hooks/useUnifiedData';
 import { useSettings } from './hooks/useSettings';
 import { useUserManagement } from './hooks/useUserManagement';
 
+// ✨ PHASE 2: Hook de notifications
+import { useNotifications } from './hooks/useNotifications';
+
 // Layout
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
-import NotificationPanel from './components/Notifications/NotificationPanel';
+import NotificationPanel from './components/Notifications/NotificationPrompt';
 import AdvancedSearchView from './components/Search/AdvancedSearchView';
 
 // Vues
@@ -44,6 +47,9 @@ import CreateUserModal from './components/Users/CreateUserModal';
 import UserManagementModal from './components/Users/UserManagementModal';
 import UpdatePasswordModal from './components/Users/UpdatePasswordModal';
 
+// ✨ PHASE 2: Composant de prompt pour notifications
+import NotificationPrompt from './components/Notifications/NotificationPrompt';
+
 // Firestore imports
 import { 
   collection, 
@@ -64,6 +70,9 @@ import { db, storage } from './config/firebase';
 // ✨ Import du toast global
 import { toast } from './utils/toast';
 
+// ✨ PHASE 2: Import du service de notifications
+import { notificationService } from './services/notificationService';
+
 const AppContent = () => {
   const { user, loading: authLoading, logout } = useAuth();
   
@@ -82,6 +91,9 @@ const AppContent = () => {
     isSettingsModalOpen,
     setIsSettingsModalOpen
   } = useApp();
+
+  // ✨ PHASE 2: Hook de notifications
+  const notifications = useNotifications();
 
   // ✅ Hooks de données
   const {
@@ -123,6 +135,14 @@ const AppContent = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+
+  // ✨ PHASE 2: Logger le statut des notifications
+  useEffect(() => {
+    if (user && notifications.isEnabled) {
+      console.log('✅ Notifications activées pour', user.email);
+      console.log('📱 Token FCM:', notifications.token?.substring(0, 20) + '...');
+    }
+  }, [user, notifications.isEnabled, notifications.token]);
 
   // useEffect - Interventions
   useEffect(() => {
@@ -282,9 +302,29 @@ const AppContent = () => {
         }]
       };
 
-      await addDoc(collection(db, 'interventions'), interventionToAdd);
+      const docRef = await addDoc(collection(db, 'interventions'), interventionToAdd);
 
-      toast.success('Intervention créée avec succès');
+      // ✨ PHASE 2: Notifier le technicien assigné
+      if (interventionData.assignedTo) {
+        const locationText = interventionData.rooms 
+          ? (interventionData.rooms.length > 1 
+              ? `Chambres ${interventionData.rooms[0]}-${interventionData.rooms[interventionData.rooms.length-1]}` 
+              : `Chambre ${interventionData.rooms[0]}`)
+          : (interventionData.location || '');
+
+        await notificationService.notifyNewIntervention(
+          {
+            ...interventionData,
+            id: docRef.id,
+            location: locationText
+          },
+          interventionData.assignedTo
+        );
+
+        toast.success('Intervention créée et technicien notifié');
+      } else {
+        toast.success('Intervention créée avec succès');
+      }
 
       setIsCreateInterventionModalOpen(false);
       return { success: true };
@@ -334,6 +374,28 @@ const AppContent = () => {
             comment: updates.comment || `Statut changé en ${updates.status}`
           }
         ];
+
+        // ✨ PHASE 2: Notifier selon le changement de statut
+        if (updates.status === 'completed' && intervention.createdBy !== user.uid) {
+          await notificationService.notifyInterventionUpdate(
+            intervention,
+            intervention.createdBy,
+            `L'intervention ${intervention.missionSummary} est terminée`
+          );
+        }
+      }
+
+      // ✨ PHASE 2: Notifier si réassignation
+      if (updates.assignedTo) {
+        const intervention = interventions.find(i => i.id === interventionId);
+        if (updates.assignedTo !== intervention.assignedTo) {
+          await notificationService.notifyTechnician(
+            updates.assignedTo,
+            '🔧 Nouvelle assignation',
+            `L'intervention ${intervention.missionSummary} vous a été assignée`,
+            { interventionId }
+          );
+        }
       }
 
       await updateDoc(doc(db, 'interventions', interventionId), updateData);
@@ -688,6 +750,20 @@ const AppContent = () => {
                 updatedBy: user.uid
               });
 
+              // ✨ PHASE 2: Notifier le destinataire du nouveau message
+              const recipientId = selectedIntervention.assignedTo === user.uid 
+                ? selectedIntervention.createdBy 
+                : selectedIntervention.assignedTo;
+              
+              if (recipientId && recipientId !== user.uid) {
+                await notificationService.notifyNewMessage(
+                  selectedIntervention,
+                  recipientId,
+                  user.name || user.email,
+                  message
+                );
+              }
+
               toast.success('Message envoyé');
 
               return { success: true };
@@ -885,6 +961,9 @@ const AppContent = () => {
         toasts={toastInstance.toasts} 
         onRemove={toastInstance.removeToast} 
       />
+
+      {/* ✨ PHASE 2: Prompt de notifications (affiché uniquement si utilisateur connecté) */}
+      {user && <NotificationPrompt />}
     </div>
   );
 };

@@ -1,6 +1,6 @@
-// src/components/Interventions/InterventionsView.jsx - VERSION AVEC FILTRAGE TECHNICIEN
+// src/components/Interventions/InterventionsView.jsx - VERSION OPTIMISÉE PHASE 1
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, MapPin, Camera, AlertCircle, Wrench, Filter, Eye } from 'lucide-react';
+import { Search, Plus, MapPin, Camera, AlertCircle, Wrench, Filter, Eye, Home, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 const InterventionsView = ({ 
@@ -11,7 +11,11 @@ const InterventionsView = ({
   onSearchChange,
   filterStatus = 'all',
   onFilterChange,
-  dropdowns = {}
+  dropdowns = {},
+  // ✨ NOUVEAU Phase 1: Props pour pagination
+  hasMore = false,
+  onLoadMore,
+  isLoadingMore = false
 }) => {
   const { user } = useAuth();
   const [showAllInterventions, setShowAllInterventions] = useState(false);
@@ -29,10 +33,29 @@ const InterventionsView = ({
     return priority?.name || value;
   };
 
-  // ✅ Fonction pour formater l'affichage principal
+  // ✅ Fonction pour formater l'affichage principal (support multi-chambres)
   const getMainDisplay = (intervention) => {
     const roomTypeLabel = getRoomTypeLabel(intervention.roomType);
     
+    // Support nouveau format multi-chambres (rooms array)
+    if (intervention.roomType === 'chambre' && intervention.rooms && intervention.rooms.length > 0) {
+      if (intervention.rooms.length === 1) {
+        return `${roomTypeLabel} ${intervention.rooms[0]}`;
+      } else {
+        return `${roomTypeLabel}s ${intervention.rooms[0]} - ${intervention.rooms[intervention.rooms.length - 1]} (${intervention.rooms.length})`;
+      }
+    }
+    
+    // Support format intermédiaire (locations array)
+    if (intervention.roomType === 'chambre' && intervention.locations && intervention.locations.length > 0) {
+      if (intervention.locations.length === 1) {
+        return `${roomTypeLabel} ${intervention.locations[0]}`;
+      } else {
+        return `${roomTypeLabel}s ${intervention.locations[0]} - ${intervention.locations[intervention.locations.length - 1]} (${intervention.locations.length})`;
+      }
+    }
+    
+    // Support ancien format (location string) - rétrocompatibilité
     if (intervention.roomType === 'chambre' && intervention.location) {
       return `${roomTypeLabel} ${intervention.location}`;
     }
@@ -40,33 +63,52 @@ const InterventionsView = ({
     return roomTypeLabel;
   };
 
-  // ✨ NOUVEAU : Filtrage automatique si l'utilisateur est lié à un technicien
+  // ✨ FILTRAGE INTELLIGENT - Phase 1 optimisée
   const filteredInterventions = useMemo(() => {
     let result = interventions;
 
-    // Filtrage automatique technicien
+    // 1️⃣ Filtrage automatique par technicien assigné (CORRIGÉ ✅)
     if (user?.linkedTechnicianId && !showAllInterventions) {
       result = result.filter(intervention => {
-        // Support du nouveau format locations[]
-        const locationText = intervention.locations 
-          ? intervention.locations.join(' ') 
-          : '';
-        return locationText.toLowerCase().includes(searchTerm.toLowerCase());
+        // Vérifier si l'intervention est assignée à ce technicien
+        // On vérifie à la fois linkedTechnicianId et uid pour plus de flexibilité
+        return intervention.assignedTo === user.linkedTechnicianId || 
+               intervention.assignedTo === user.uid;
       });
     }
 
-    // Filtrage par recherche
+    // 2️⃣ Filtrage par recherche (support multi-formats)
     if (searchTerm) {
+      const search = searchTerm.toLowerCase().trim();
       result = result.filter(intervention => {
         if (!intervention) return false;
         
-        return (intervention.location?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-               (intervention.missionSummary?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-               (intervention.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+        // Support ancien format (location string)
+        const oldLocation = (intervention.location || '').toLowerCase();
+        
+        // Support format intermédiaire (locations array)
+        const newLocations = intervention.locations 
+          ? intervention.locations.join(' ').toLowerCase() 
+          : '';
+        
+        // Support format actuel (rooms array)
+        const rooms = intervention.rooms
+          ? intervention.rooms.join(' ').toLowerCase()
+          : '';
+        
+        // Recherche dans tous les champs pertinents
+        return oldLocation.includes(search) ||
+               newLocations.includes(search) ||
+               rooms.includes(search) ||
+               (intervention.missionSummary?.toLowerCase() || '').includes(search) ||
+               (intervention.description?.toLowerCase() || '').includes(search) ||
+               (intervention.roomType?.toLowerCase() || '').includes(search) ||
+               (intervention.assignedToName?.toLowerCase() || '').includes(search) ||
+               (intervention.createdByName?.toLowerCase() || '').includes(search);
       });
     }
     
-    // Filtrage par statut
+    // 3️⃣ Filtrage par statut
     if (filterStatus !== 'all') {
       result = result.filter(intervention => intervention.status === filterStatus);
     }
@@ -114,7 +156,7 @@ const InterventionsView = ({
 
   return (
     <div className="space-y-6">
-      {/* ✨ NOUVEAU : Badge de filtrage technicien */}
+      {/* ✨ Badge de filtrage technicien */}
       {user?.linkedTechnicianId && (
         <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
           <div className="flex items-center justify-between">
@@ -159,7 +201,7 @@ const InterventionsView = ({
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
           <input
             type="text"
-            placeholder="Rechercher par localisation ou description..."
+            placeholder="Rechercher par chambre, description, technicien..."
             value={searchTerm}
             onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
             className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -203,7 +245,11 @@ const InterventionsView = ({
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-3">
-                  <MapPin size={20} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                  {intervention.roomType === 'chambre' && intervention.rooms && intervention.rooms.length > 1 ? (
+                    <Home size={20} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                  ) : (
+                    <MapPin size={20} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                  )}
                   <h3 className="text-xl font-bold text-gray-800 dark:text-white">
                     {getMainDisplay(intervention)}
                   </h3>
@@ -244,6 +290,33 @@ const InterventionsView = ({
           </div>
         ))}
         
+        {/* ✨ NOUVEAU Phase 1: Bouton "Charger plus" avec pagination */}
+        {hasMore && filteredInterventions.length > 0 && (
+          <button
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+            className="w-full py-4 border-2 border-dashed border-gray-300 dark:border-gray-600 
+                     rounded-lg hover:border-indigo-500 dark:hover:border-indigo-400 
+                     hover:bg-indigo-50 dark:hover:bg-indigo-900/10
+                     transition text-gray-600 dark:text-gray-400 font-medium
+                     disabled:opacity-50 disabled:cursor-not-allowed
+                     flex items-center justify-center gap-2"
+          >
+            {isLoadingMore ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600" />
+                Chargement...
+              </>
+            ) : (
+              <>
+                <ChevronDown size={20} />
+                Charger plus d'interventions
+              </>
+            )}
+          </button>
+        )}
+        
+        {/* Message si aucune intervention */}
         {filteredInterventions.length === 0 && (
           <div className="text-center py-12">
             <MapPin size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-4" />

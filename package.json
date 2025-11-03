@@ -1,33 +1,103 @@
 {
   "name": "gestihotel",
-  "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
+  "description": "Application de gestion d'interventions hôtelières avec PWA",
+  "author": "GestiHôtel Team",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && firebase deploy"
-  },
-  "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.0",
-    "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.3.6",
-    "vite": "^5.0.8",
-    "vite-plugin-pwa": "^0.17.0",
-    "vitest": "^4.0.3"
+    "deploy": "npm run build && firebase deploy",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext js,jsx --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\"",
+    "type-check": "tsc --noEmit",
+    "analyze": "vite-bundle-visualizer"
   },
   "dependencies": {
-    "dotenv": "^17.2.3",
-    "firebase": "^10.7.1",
-    "firebase-admin": "^13.5.0",
-    "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "recharts": "^3.3.0",
-    "xlsx": "^0.18.5"
+    "react-router-dom": "^6.20.0",
+    
+    "firebase": "^10.7.1",
+    
+    "lucide-react": "^0.294.0",
+    
+    "date-fns": "^2.30.0",
+    
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.0",
+    
+    "xlsx": "^0.18.5",
+    
+    "qrcode": "^1.5.3",
+    "jsqr": "^1.4.0",
+    
+    "react-signature-canvas": "^1.0.6",
+    
+    "recharts": "^2.10.3",
+    
+    "framer-motion": "^10.16.16",
+    
+    "react-beautiful-dnd": "^13.1.1",
+    
+    "react-hot-toast": "^2.4.1",
+    
+    "zustand": "^4.4.7",
+    
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8",
+    "vite-plugin-pwa": "^0.17.4",
+    "workbox-window": "^7.0.0",
+    
+    "tailwindcss": "^3.3.6",
+    "postcss": "^8.4.32",
+    "autoprefixer": "^10.4.16",
+    
+    "eslint": "^8.55.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    
+    "prettier": "^3.1.1",
+    "prettier-plugin-tailwindcss": "^0.5.9",
+    
+    "typescript": "^5.3.3",
+    
+    "vitest": "^1.0.4",
+    "@vitest/ui": "^1.0.4",
+    "@testing-library/react": "^14.1.2",
+    "@testing-library/jest-dom": "^6.1.5",
+    "c8": "^8.0.1",
+    
+    "firebase-tools": "^13.0.2",
+    
+    "vite-bundle-visualizer": "^0.10.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   }
 }

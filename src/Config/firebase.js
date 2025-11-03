@@ -1,11 +1,16 @@
-// src/Config/firebase.js - VERSION CORRIGÉE
+// src/Config/firebase.js - VERSION MINIMALISTE GARANTIE
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { 
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
-import { getAnalytics, logEvent, setUserId, setUserProperties } from 'firebase/analytics';
-import { getPerformance } from 'firebase/performance';
+
+// ⚠️ NE PAS importer getMessaging ici - ça cause des conflits avec Firestore
+// Il sera importé dynamiquement plus tard
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -17,63 +22,141 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
+console.log('🔥 Initialisation Firebase...');
+
+// ✅ 1. Initialiser l'app
 const app = initializeApp(firebaseConfig);
+console.log('✅ App initialisée');
 
-export const auth = getAuth(app);
+// ✅ 2. Initialiser Auth
+const auth = getAuth(app);
+console.log('✅ Auth initialisée');
 
-// ✅ CORRECTION : Utiliser la nouvelle API de cache avec support multi-onglets
-export const db = getFirestore(app);
+// ✅ 3. Initialiser Firestore AVEC LA NOUVELLE API
+// 🔑 IMPORTANT: Utiliser initializeFirestore au lieu de getFirestore
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+console.log('✅ Firestore initialisée');
 
-// ✅ Activer la persistance avec support multi-onglets (nouvelle API)
-if (typeof window !== 'undefined') {
-  try {
-    // Utiliser la nouvelle API recommandée
-    enableIndexedDbPersistence(db, {
-      synchronizeTabs: true // ✅ Permettre la synchro multi-onglets
-    }).catch((err) => {
-      if (err.code === 'failed-precondition') {
-        console.warn('⚠️ Persistance : plusieurs onglets ouverts, synchro activée');
-      } else if (err.code === 'unimplemented') {
-        console.warn('⚠️ Persistance non supportée par ce navigateur');
-      } else {
-        console.error('❌ Erreur persistance:', err);
-      }
-    });
-  } catch (error) {
-    console.warn('⚠️ Impossible d\'activer la persistance:', error);
-  }
-}
+// ✅ 4. Initialiser Storage
+const storage = getStorage(app);
+console.log('✅ Storage initialisée');
 
-export const storage = getStorage(app);
-export const functions = getFunctions(app);
+// ✅ 5. Initialiser Functions
+const functions = getFunctions(app);
+console.log('✅ Functions initialisées');
 
-// ✅ ANALYTICS (uniquement en production)
-export const analytics = typeof window !== 'undefined' && import.meta.env.PROD 
-  ? getAnalytics(app) 
-  : null;
-
-// ✅ PERFORMANCE MONITORING
-export const performance = typeof window !== 'undefined' && import.meta.env.PROD
-  ? getPerformance(app)
-  : null;
+// ✅ Exports principaux
+export { app, auth, db, storage, functions };
 
 // ===================================
-// 📊 HELPER FUNCTIONS ANALYTICS
+// 📱 FIREBASE CLOUD MESSAGING
+// ===================================
+// ⚠️ Importé APRÈS Firestore pour éviter les conflits
+
+let messaging = null;
+let vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY || null;
+
+// Fonction pour initialiser FCM (appelée après le chargement complet)
+export const initializeMessaging = async () => {
+  if (typeof window === 'undefined') {
+    console.log('⚪ FCM: Mode serveur, skip');
+    return null;
+  }
+
+  try {
+    // Import dynamique pour éviter les conflits
+    const { getMessaging, isSupported } = await import('firebase/messaging');
+    
+    const supported = await isSupported();
+    if (!supported) {
+      console.warn('⚠️ FCM non supporté par ce navigateur');
+      return null;
+    }
+
+    if (!vapidKey) {
+      console.warn('⚠️ VAPID Key manquante dans .env');
+      return null;
+    }
+
+    messaging = getMessaging(app);
+    console.log('✅ FCM initialisé');
+    return messaging;
+    
+  } catch (error) {
+    console.warn('⚠️ Erreur initialisation FCM:', error.message);
+    return null;
+  }
+};
+
+// Initialiser FCM après un délai
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    initializeMessaging().then(msg => {
+      if (msg) {
+        messaging = msg;
+      }
+    });
+  }, 500); // Délai de 500ms pour laisser Firestore se charger
+}
+
+export { messaging, vapidKey };
+
+// ===================================
+// 📊 ANALYTICS
+// ===================================
+
+let analytics = null;
+
+// Import dynamique d'analytics
+if (typeof window !== 'undefined' && import.meta.env.PROD && firebaseConfig.measurementId) {
+  import('firebase/analytics').then(({ getAnalytics, logEvent: logEventFn, setUserId: setUserIdFn, setUserProperties: setUserPropertiesFn }) => {
+    try {
+      analytics = getAnalytics(app);
+      console.log('✅ Analytics initialisée');
+      
+      // Exporter les fonctions analytics
+      window._logEvent = logEventFn;
+      window._setUserId = setUserIdFn;
+      window._setUserProperties = setUserPropertiesFn;
+    } catch (error) {
+      console.warn('⚠️ Analytics non disponible:', error.message);
+    }
+  }).catch(err => {
+    console.warn('⚠️ Erreur chargement Analytics:', err);
+  });
+}
+
+export { analytics };
+
+// ===================================
+// 📊 ANALYTICS HELPERS
 // ===================================
 
 export const logAnalyticsEvent = (eventName, eventParams = {}) => {
-  if (analytics) {
-    logEvent(analytics, eventName, {
-      ...eventParams,
-      timestamp: new Date().toISOString()
-    });
+  if (analytics && window._logEvent) {
+    try {
+      window._logEvent(analytics, eventName, {
+        ...eventParams,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.warn('⚠️ Erreur log analytics:', error);
+    }
   }
 };
 
 export const setAnalyticsUser = (userId, userProperties = {}) => {
-  if (analytics) {
-    setUserId(analytics, userId);
-    setUserProperties(analytics, userProperties);
+  if (analytics && window._setUserId && window._setUserProperties) {
+    try {
+      window._setUserId(analytics, userId);
+      window._setUserProperties(analytics, userProperties);
+    } catch (error) {
+      console.warn('⚠️ Erreur set analytics user:', error);
+    }
   }
 };
 
@@ -117,7 +200,7 @@ export const analyticsEvents = {
   pageView: (pageName) => {
     logAnalyticsEvent('page_view', { 
       page_name: pageName,
-      page_path: window.location.pathname
+      page_path: typeof window !== 'undefined' ? window.location.pathname : ''
     });
   },
 
@@ -135,5 +218,42 @@ export const analyticsEvents = {
     });
   }
 };
+
+// ===================================
+// 🔍 PERFORMANCE (optionnel)
+// ===================================
+
+let performance = null;
+
+if (typeof window !== 'undefined' && import.meta.env.PROD) {
+  import('firebase/performance').then(({ getPerformance }) => {
+    try {
+      performance = getPerformance(app);
+      console.log('✅ Performance monitoring initialisé');
+    } catch (error) {
+      console.warn('⚠️ Performance monitoring non disponible');
+    }
+  }).catch(() => {
+    // Silencieux
+  });
+}
+
+export { performance };
+
+// ===================================
+// ✅ RÉSUMÉ
+// ===================================
+
+console.log('');
+console.log('📦 Firebase - Services chargés:');
+console.log('   ✅ App');
+console.log('   ✅ Auth');
+console.log('   ✅ Firestore');
+console.log('   ✅ Storage');
+console.log('   ✅ Functions');
+console.log('   ⏳ Messaging (chargement...)');
+console.log('   ⚪ Analytics (prod only)');
+console.log('   ⚪ Performance (prod only)');
+console.log('');
 
 export default app;
