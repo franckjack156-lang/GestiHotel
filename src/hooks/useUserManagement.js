@@ -1,4 +1,4 @@
-// src/hooks/useUserManagement.js - VERSION CORRIGÉE
+// src/hooks/useUserManagement.js - VERSION FINALE CORRIGÉE
 import { useState, useEffect } from 'react';
 import { 
   collection, 
@@ -12,28 +12,46 @@ import {
   getDocs
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db, auth } from '../config/firebase';
+import { db } from '../config/firebase';
+import { useAuth } from '../contexts/AuthContext'; // ✅ IMPORTANT
 import { toast } from '../utils/toast';
 
 export const useUserManagement = () => {
+  // ✅ CORRECTION CRITIQUE : Utiliser useAuth() au lieu de auth.currentUser
+  const { user, loading: authLoading } = useAuth();
+  
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // ✅ CORRECTION : Vérifier que l'utilisateur est authentifié
-    const currentUser = auth.currentUser;
-    
-    if (!currentUser) {
+    // ✅ CORRECTION 1 : Attendre que l'auth soit chargée
+    if (authLoading) {
+      console.log('⏳ useUserManagement: Auth en cours de chargement...');
+      return;
+    }
+
+    // ✅ CORRECTION 2 : Vérifier user APRÈS authLoading
+    if (!user) {
       console.warn('⚠️ useUserManagement: Utilisateur non connecté, chargement des users ignoré');
+      setUsers([]);
       setLoading(false);
       return;
     }
 
     console.log('🔍 useUserManagement: Chargement des utilisateurs...');
-    console.log('👤 User authentifié:', currentUser.email);
+    console.log('👤 User authentifié:', user.email, '- Role:', user.role);
 
-    // ✅ Essayer d'abord avec getDocs (une seule lecture)
+    // ✅ CORRECTION 3 : Vérifier les permissions
+    const allowedRoles = ['superadmin', 'manager'];
+    if (!allowedRoles.includes(user.role)) {
+      console.warn('⚠️ useUserManagement: Rôle insuffisant:', user.role);
+      setError('Accès non autorisé - Rôle requis: superadmin ou manager');
+      setLoading(false);
+      return;
+    }
+
+    // ✅ Chargement initial avec getDocs
     const loadUsersOnce = async () => {
       try {
         const q = query(
@@ -41,6 +59,7 @@ export const useUserManagement = () => {
           orderBy('createdAt', 'desc')
         );
 
+        console.log('📄 Chargement initial des users...');
         const snapshot = await getDocs(q);
         
         const usersData = [];
@@ -59,9 +78,6 @@ export const useUserManagement = () => {
         setUsers(usersData);
         setLoading(false);
         
-        // ✅ Si ça marche, passer au listener temps réel
-        setupRealtimeListener();
-        
       } catch (err) {
         console.error('❌ Erreur chargement utilisateurs:', err);
         console.error('   Code:', err.code);
@@ -74,18 +90,21 @@ export const useUserManagement = () => {
           });
         } else {
           setError(err.message);
+          toast.error('Erreur chargement users', { description: err.message });
         }
         
         setLoading(false);
       }
     };
 
-    // ✅ Setup du listener temps réel (si la première lecture fonctionne)
+    // ✅ Setup du listener temps réel
     const setupRealtimeListener = () => {
       const q = query(
         collection(db, 'users'),
         orderBy('createdAt', 'desc')
       );
+
+      console.log('🔄 Setup listener temps réel...');
 
       const unsubscribe = onSnapshot(
         q,
@@ -107,7 +126,7 @@ export const useUserManagement = () => {
         },
         (err) => {
           console.error('❌ Erreur listener temps réel:', err);
-          // Ne pas bloquer si le listener échoue, on garde les données chargées
+          // Ne pas bloquer si le listener échoue
         }
       );
 
@@ -117,7 +136,18 @@ export const useUserManagement = () => {
     // Lancer le chargement initial
     loadUsersOnce();
 
-  }, []); // ✅ Pas de dépendances, s'exécute une seule fois
+    // Puis setup le listener temps réel
+    const unsubscribe = setupRealtimeListener();
+
+    // Cleanup
+    return () => {
+      console.log('🧹 useUserManagement: Cleanup');
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+
+  }, [user, authLoading]); // ✅ CORRECTION 4 : Dépendances correctes
 
   const addUser = async (userData) => {
     try {

@@ -3,105 +3,33 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
-      
       manifest: {
-        name: 'GestiHôtel - Gestion des Interventions',
+        name: 'GestiHôtel',
         short_name: 'GestiHôtel',
-        description: 'Application de gestion des interventions hôtelières',
-        theme_color: '#3b82f6',
-        background_color: '#ffffff',
-        display: 'standalone',
-        scope: '/',
-        start_url: '/',
-        orientation: 'portrait',
+        description: 'Application de gestion d\'interventions hôtelières',
+        theme_color: '#4f46e5',
         icons: [
-          {
-            src: 'pwa-64x64.png',
-            sizes: '64x64',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: 'maskable-icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable'
-          }
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' }
         ]
       },
-      
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 an
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          },
-          {
-            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'gstatic-fonts-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 an
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          },
-          {
-            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'firestore-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 5 // 5 minutes
-              },
-              networkTimeoutSeconds: 10
-            }
-          },
-          {
-            urlPattern: /^https:\/\/.*\.firebasestorage\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
+            urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/i,
+            handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'firebase-storage-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 7 // 7 jours
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] }
             }
           },
           {
@@ -109,28 +37,27 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: {
               cacheName: 'images-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 30 // 30 jours
-              }
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'firestore-cache',
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
+              networkTimeoutSeconds: 10
             }
           }
         ],
-        
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true
       },
-      
-      // IMPORTANT: Service Worker désactivé en développement
-      devOptions: {
-        enabled: false, // Désactivé en dev pour éviter les problèmes de cache
-        type: 'module'
-      }
+      devOptions: { enabled: false, type: 'module' }
     })
   ],
   
-  // Resolve aliases
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -144,54 +71,123 @@ export default defineConfig({
     }
   },
   
-  // Build optimizations
+  // ✅ CRITIQUE: Exclusion complète de Firebase de l'optimisation
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-router-dom'
+      // ✅ NE PAS inclure Firebase ici
+    ],
+    exclude: [
+      // ✅ EXCLURE TOUS les packages Firebase
+      'firebase',
+      'firebase/app',
+      'firebase/auth', 
+      'firebase/firestore',
+      'firebase/storage',
+      'firebase/functions',
+      'firebase/analytics',
+      'firebase/messaging',
+      'firebase/performance',
+      '@firebase/app',
+      '@firebase/auth',
+      '@firebase/firestore',
+      '@firebase/storage',
+      '@firebase/functions',
+      '@firebase/analytics',
+      '@firebase/messaging',
+      '@firebase/performance',
+      '@firebase/util',
+      '@firebase/component'
+    ],
+    esbuildOptions: {
+      target: 'esnext',
+      supported: { 'top-level-await': true }
+    }
+  },
+  
   build: {
     target: 'esnext',
     minify: 'terser',
     
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info', 'console.debug'],
-        passes: 2
-      },
-      mangle: {
-        safari10: true
-      },
-      format: {
-        comments: false
-      }
+    // ✅ CommonJS pour Firebase
+    commonjsOptions: {
+      include: [/firebase/, /node_modules/],
+      transformMixedEsModules: true
     },
     
-    // Code splitting
+    terserOptions: {
+      compress: {
+        drop_console: false,
+        drop_debugger: true,
+        pure_funcs: ['console.log', 'console.info', 'console.debug'],
+        passes: 1
+      },
+      mangle: { safari10: true },
+      format: { comments: false }
+    },
+    
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Vendor chunks
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
-          'ui-vendor': ['lucide-react', 'framer-motion'],
-          'chart-vendor': ['recharts'],
-          'export-vendor': ['jspdf', 'jspdf-autotable', 'xlsx'],
-          'qr-vendor': ['qrcode', 'jsqr'],
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            // React
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'react-vendor';
+            }
+            if (id.includes('react-router')) {
+              return 'router-vendor';
+            }
+            
+            // ✅ Firebase: UN SEUL CHUNK pour éviter les problèmes
+            if (id.includes('firebase') || id.includes('@firebase')) {
+              return 'firebase-vendor';
+            }
+            
+            // UI
+            if (id.includes('lucide-react')) return 'icons';
+            if (id.includes('framer-motion')) return 'animations';
+            if (id.includes('recharts')) return 'charts';
+            
+            // Export
+            if (id.includes('jspdf') || id.includes('jspdf-autotable')) {
+              return 'pdf-export';
+            }
+            if (id.includes('xlsx')) return 'excel-export';
+            
+            // QR
+            if (id.includes('qrcode') || id.includes('jsqr')) {
+              return 'qr-code';
+            }
+            
+            // Date
+            if (id.includes('date-fns')) return 'date-utils';
+            
+            return 'vendor';
+          }
           
-          // Component chunks
-          'interventions': [
-            './src/components/Interventions/InterventionsView.jsx',
-            './src/components/Interventions/InterventionCard.jsx',
-            './src/components/Interventions/InterventionDetailModal.jsx'
-          ],
-          'dashboard': [
-            './src/components/Dashboard/DashboardView.jsx',
-            './src/components/Dashboard/StatsCard.jsx'
-          ],
-          'analytics': [
-            './src/components/Analytics/AnalyticsView.jsx'
-          ]
+          // Application chunks
+          if (id.includes('/components/Interventions/')) {
+            if (id.includes('InterventionsView')) return 'page-interventions';
+            if (id.includes('InterventionDetail')) return 'intervention-detail';
+            return 'interventions-components';
+          }
+          
+          if (id.includes('/components/Dashboard/')) {
+            if (id.includes('AdvancedAnalytics')) return 'advanced-analytics';
+            return 'dashboard';
+          }
+          if (id.includes('/components/Analytics/')) return 'analytics';
+          if (id.includes('/components/Admin/')) return 'admin';
+          if (id.includes('/components/Users/')) return 'users';
+          if (id.includes('/components/Planning/') || id.includes('Calendar')) return 'planning';
+          if (id.includes('/components/Settings/')) return 'settings';
+          if (id.includes('/components/Chat/')) return 'chat';
+          if (id.includes('/components/Templates/')) return 'templates';
+          if (id.includes('/components/Rooms/')) return 'rooms';
         },
         
-        // Asset file naming
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',
         assetFileNames: (assetInfo) => {
@@ -199,7 +195,8 @@ export default defineConfig({
           const ext = info[info.length - 1];
           if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
             return `assets/images/[name]-[hash][extname]`;
-          } else if (/woff|woff2/.test(ext)) {
+          }
+          if (/woff|woff2|ttf|otf/.test(ext)) {
             return `assets/fonts/[name]-[hash][extname]`;
           }
           return `assets/[name]-[hash][extname]`;
@@ -207,32 +204,18 @@ export default defineConfig({
       }
     },
     
-    // Chunk size warnings
-    chunkSizeWarningLimit: 1000,
-    
-    // Source maps désactivés en production pour la sécurité
+    chunkSizeWarningLimit: 1200, // Augmenté car Firebase sera dans un gros chunk
     sourcemap: false,
-    
-    // CSS code splitting
     cssCodeSplit: true,
-    
-    // Report compressed size
     reportCompressedSize: true
   },
   
-  // Dev server
   server: {
     port: 5173,
     host: true,
     open: true,
     cors: true,
-    
-    // HMR
-    hmr: {
-      overlay: true
-    },
-    
-    // Proxy pour éviter les CORS en dev (si nécessaire)
+    hmr: { overlay: true },
     proxy: {
       '/api': {
         target: 'http://localhost:5001',
@@ -242,43 +225,19 @@ export default defineConfig({
     }
   },
   
-  // Preview server
   preview: {
     port: 4173,
     host: true,
     open: true
   },
   
-  // Optimizations
-  optimizeDeps: {
-    include: [
-      'firebase/app',
-      'firebase/auth',
-      'firebase/firestore',
-      'firebase/storage',
-      'firebase/functions'
-    ]
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: './src/setupTests.js',
-    coverage: {
-      provider: 'c8',
-      reporter: ['text', 'html', 'lcov'],
-      exclude: ['node_modules/', 'src/setupTests.js']
-    }
-  },
-  // Esbuild options
   esbuild: {
     logOverride: { 'this-is-undefined-in-esm': 'silent' },
     legalComments: 'none',
     target: 'esnext'
   },
   
-  // CSS
   css: {
     devSourcemap: true
   }
-  
 });

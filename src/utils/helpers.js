@@ -1,10 +1,3 @@
-// ==========================================
-// 🛠️ HELPERS.JS - VERSION MODERNISÉE
-// ==========================================
-// Ce fichier regroupe tous les utilitaires de l'application
-// Il maintient la compatibilité avec l'ancien code tout en ajoutant
-// de nouvelles fonctionnalités et une meilleure gestion d'erreurs
-
 // ========================================
 // 📁 PARTIE 1 : GESTION DES FICHIERS
 // ========================================
@@ -76,21 +69,24 @@ export const fileUtils = {
   },
 
   /**
-   * Générer un nom de fichier unique et sécurisé
+   * ✅ CORRECTION: Générer un nom de fichier unique et sécurisé (COMPLET)
    */
   generateFileName(originalName) {
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 9);
-    const extension = originalName.split('.').pop().toLowerCase();
     
-    // Nettoyer le nom original
-    const cleanName = originalName
-      .replace(`.${extension}`, '')
+    // ✅ Extraction sécurisée de l'extension
+    const parts = originalName.split('.');
+    const extension = parts.length > 1 ? parts.pop().toLowerCase() : 'jpg';
+    
+    // ✅ Nettoyer le nom original
+    const baseName = parts.join('.'); // Rejoindre au cas où il y a plusieurs points
+    const cleanName = baseName
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9]/g, '_')
+      .replace(/[\u0300-\u036f]/g, '') // Enlever les accents
+      .replace(/[^a-zA-Z0-9]/g, '_')   // Remplacer caractères spéciaux
       .toLowerCase()
-      .substring(0, 30);
+      .substring(0, 30); // Limiter la longueur
 
     return `${cleanName}_${timestamp}_${random}.${extension}`;
   },
@@ -136,7 +132,7 @@ export const fileUtils = {
   },
 
   /**
-   * Compresser une image
+   * ✅ CORRECTION: Compresser une image (COMPLET)
    */
   compressImage(file, options = {}) {
     return new Promise((resolve, reject) => {
@@ -182,33 +178,289 @@ export const fileUtils = {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          canvas.toBlob(
-            (blob) => {
-              if (blob) {
-                const compressedFile = new File([blob], file.name, {
-                  type: file.type,
-                  lastModified: Date.now()
-                });
-                resolve(compressedFile);
-              } else {
-                reject(new Error('Erreur lors de la compression'));
-              }
-            },
-            file.type,
-            quality
-          );
+          // Convertir en blob
+          canvas.toBlob((blob) => {
+            if (blob) {
+              // Créer un nouveau fichier avec le blob compressé
+              const compressedFile = new File([blob], file.name, {
+                type: file.type,
+                lastModified: Date.now()
+              });
+              
+              resolve(compressedFile);
+            } else {
+              reject(new Error('Erreur lors de la compression'));
+            }
+          }, file.type, quality);
         };
 
-        img.onerror = () => reject(new Error('Erreur lors du chargement de l\'image'));
+        img.onerror = () => {
+          reject(new Error('Erreur lors du chargement de l\'image'));
+        };
       };
 
-      reader.onerror = () => reject(new Error('Erreur lors de la lecture du fichier'));
+      reader.onerror = (error) => {
+        reject(error);
+      };
+    });
+  },
+
+  /**
+   * ✅ NOUVEAU: Extraire les métadonnées EXIF d'une image
+   */
+  async extractImageMetadata(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target.result;
+        
+        img.onload = () => {
+          resolve({
+            width: img.width,
+            height: img.height,
+            size: file.size,
+            type: file.type,
+            name: file.name,
+            lastModified: new Date(file.lastModified)
+          });
+        };
+        
+        img.onerror = () => {
+          resolve(null);
+        };
+      };
+      
+      reader.readAsDataURL(file);
     });
   }
 };
 
 // ========================================
-// ✅ PARTIE 2 : VALIDATION
+// 📅 PARTIE 2 : GESTION DES DATES
+// ========================================
+
+export const dateUtils = {
+  /**
+   * Formater une date
+   */
+  formatDate(date, format = 'dd/MM/yyyy') {
+    if (!date) return '';
+    
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d.getTime())) return '';
+    
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    
+    return format
+      .replace('dd', day)
+      .replace('MM', month)
+      .replace('yyyy', year)
+      .replace('HH', hours)
+      .replace('mm', minutes);
+  },
+
+  /**
+   * ✅ NOUVEAU: Obtenir une date relative (il y a X temps)
+   */
+  getRelativeTime(date) {
+    if (!date) return '';
+    
+    const d = date instanceof Date ? date : new Date(date);
+    const now = new Date();
+    const diff = now - d;
+    
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (seconds < 60) return 'À l\'instant';
+    if (minutes < 60) return `Il y a ${minutes} minute${minutes > 1 ? 's' : ''}`;
+    if (hours < 24) return `Il y a ${hours} heure${hours > 1 ? 's' : ''}`;
+    if (days < 7) return `Il y a ${days} jour${days > 1 ? 's' : ''}`;
+    if (days < 30) return `Il y a ${Math.floor(days / 7)} semaine${Math.floor(days / 7) > 1 ? 's' : ''}`;
+    
+    return this.formatDate(d);
+  },
+
+  /**
+   * ✅ NOUVEAU: Calculer la durée entre deux dates
+   */
+  calculateDuration(startDate, endDate) {
+    if (!startDate || !endDate) return { hours: 0, minutes: 0, total: 0 };
+    
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+    
+    const diff = end - start;
+    const totalMinutes = Math.floor(diff / (1000 * 60));
+    
+    return {
+      hours: Math.floor(totalMinutes / 60),
+      minutes: totalMinutes % 60,
+      total: totalMinutes
+    };
+  }
+};
+
+// ========================================
+// 🔢 PARTIE 3 : GESTION DES NOMBRES
+// ========================================
+
+export const numberUtils = {
+  /**
+   * Formater un nombre
+   */
+  formatNumber(number, decimals = 0) {
+    if (typeof number !== 'number') return '0';
+    return number.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  },
+
+  /**
+   * Formater un prix
+   */
+  formatPrice(price, currency = '€') {
+    if (typeof price !== 'number') return `0 ${currency}`;
+    return `${this.formatNumber(price, 2)} ${currency}`;
+  },
+
+  /**
+   * ✅ NOUVEAU: Calculer un pourcentage
+   */
+  calculatePercentage(value, total) {
+    if (!total || total === 0) return 0;
+    return Math.round((value / total) * 100);
+  },
+
+  /**
+   * ✅ NOUVEAU: Arrondir à N décimales
+   */
+  round(number, decimals = 2) {
+    const factor = Math.pow(10, decimals);
+    return Math.round(number * factor) / factor;
+  }
+};
+
+// ========================================
+// 📝 PARTIE 4 : GESTION DES CHAÎNES
+// ========================================
+
+export const stringUtils = {
+  /**
+   * Tronquer un texte
+   */
+  truncate(text, maxLength = 50) {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  },
+
+  /**
+   * Capitaliser la première lettre
+   */
+  capitalize(text) {
+    if (!text) return '';
+    return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+  },
+
+  /**
+   * ✅ NOUVEAU: Slugifier un texte
+   */
+  slugify(text) {
+    if (!text) return '';
+    
+    return text
+      .toString()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w\-]+/g, '')
+      .replace(/\-\-+/g, '-');
+  },
+
+  /**
+   * ✅ NOUVEAU: Échapper les caractères HTML
+   */
+  escapeHtml(text) {
+    if (!text) return '';
+    
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  },
+
+  /**
+   * ✅ NOUVEAU: Enlever les balises HTML
+   */
+  stripHtml(html) {
+    if (!html) return '';
+    
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    return div.textContent || div.innerText || '';
+  }
+};
+
+// ========================================
+// 🎨 PARTIE 5 : GESTION DES COULEURS
+// ========================================
+
+export const colorUtils = {
+  /**
+   * Obtenir une couleur basée sur le statut
+   */
+  getStatusColor(status) {
+    const colors = {
+      todo: 'blue',
+      inprogress: 'yellow',
+      completed: 'green',
+      cancelled: 'red'
+    };
+    return colors[status] || 'gray';
+  },
+
+  /**
+   * Obtenir une couleur basée sur la priorité
+   */
+  getPriorityColor(priority) {
+    const colors = {
+      urgent: 'red',
+      high: 'orange',
+      normal: 'blue',
+      low: 'green'
+    };
+    return colors[priority] || 'gray';
+  },
+
+  /**
+   * ✅ NOUVEAU: Générer une couleur aléatoire
+   */
+  randomColor() {
+    return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+  },
+
+  /**
+   * ✅ NOUVEAU: Convertir HEX en RGB
+   */
+  hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : null;
+  }
+};
+
+// ========================================
+// ✅ PARTIE 6 : VALIDATION
 // ========================================
 
 export const validationUtils = {
@@ -217,8 +469,8 @@ export const validationUtils = {
    */
   isValidEmail(email) {
     if (!email) return false;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
   },
 
   /**
@@ -226,409 +478,41 @@ export const validationUtils = {
    */
   isValidPhone(phone) {
     if (!phone) return false;
-    const cleanPhone = phone.replace(/\s/g, '');
-    const phoneRegex = /^(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}$/;
-    return phoneRegex.test(cleanPhone);
+    const re = /^(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}$/;
+    return re.test(phone.replace(/\s/g, ''));
   },
 
   /**
-   * Valider un mot de passe
+   * ✅ NOUVEAU: Valider un mot de passe
    */
   isValidPassword(password) {
-    if (!password) return false;
+    if (!password || password.length < 8) return false;
     
-    // Au moins 8 caractères, 1 majuscule, 1 minuscule, 1 chiffre
-    const hasMinLength = password.length >= 8;
     const hasUpperCase = /[A-Z]/.test(password);
     const hasLowerCase = /[a-z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
     
-    return hasMinLength && hasUpperCase && hasLowerCase && hasNumber;
+    return hasUpperCase && hasLowerCase && hasNumbers && hasSpecialChar;
   },
 
   /**
-   * Obtenir les erreurs de validation du mot de passe
-   */
-  getPasswordErrors(password) {
-    const errors = [];
-
-    if (!password) {
-      errors.push('Le mot de passe est requis');
-      return errors;
-    }
-
-    if (password.length < 8) {
-      errors.push('Au moins 8 caractères');
-    }
-    if (!/[A-Z]/.test(password)) {
-      errors.push('Une majuscule');
-    }
-    if (!/[a-z]/.test(password)) {
-      errors.push('Une minuscule');
-    }
-    if (!/[0-9]/.test(password)) {
-      errors.push('Un chiffre');
-    }
-
-    return errors;
-  },
-
-  /**
-   * Valider une intervention
-   */
-  validateIntervention(intervention) {
-    const errors = [];
-
-    // Validation de la localisation (nouveau format array)
-    if (!intervention.locations || !Array.isArray(intervention.locations) || intervention.locations.length === 0) {
-      errors.push('Au moins une localisation est obligatoire');
-    }
-
-    // Validation du résumé
-    if (!intervention.missionSummary?.trim()) {
-      errors.push('Le résumé de mission est obligatoire');
-    } else if (intervention.missionSummary.length < 10) {
-      errors.push('Le résumé doit contenir au moins 10 caractères');
-    }
-
-    // Validation de l'assignation
-    if (!intervention.assignedTo?.trim()) {
-      errors.push('L\'assignation à un technicien est obligatoire');
-    }
-
-    // Validation du statut
-    const validStatuses = ['todo', 'inprogress', 'completed', 'cancelled'];
-    if (intervention.status && !validStatuses.includes(intervention.status)) {
-      errors.push('Statut invalide');
-    }
-
-    // Validation de la priorité
-    const validPriorities = ['low', 'medium', 'high', 'urgent'];
-    if (intervention.priority && !validPriorities.includes(intervention.priority)) {
-      errors.push('Priorité invalide');
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
-  },
-
-  /**
-   * Valider un utilisateur
-   */
-  validateUser(user) {
-    const errors = [];
-
-    if (!user.name?.trim()) {
-      errors.push('Le nom est obligatoire');
-    } else if (user.name.trim().length < 2) {
-      errors.push('Le nom doit contenir au moins 2 caractères');
-    }
-
-    if (!user.email?.trim()) {
-      errors.push('L\'email est obligatoire');
-    } else if (!this.isValidEmail(user.email)) {
-      errors.push('L\'email n\'est pas valide');
-    }
-
-    if (!user.role?.trim()) {
-      errors.push('Le rôle est obligatoire');
-    } else {
-      const validRoles = ['superadmin', 'manager', 'reception', 'technician'];
-      if (!validRoles.includes(user.role)) {
-        errors.push('Rôle invalide');
-      }
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
-  },
-
-  /**
-   * Valider un numéro de chambre
-   */
-  validateRoomNumber(roomNumber) {
-    if (!roomNumber) return false;
-    // Format: nombre ou nombre + lettre (ex: 101, 101A)
-    const roomRegex = /^[0-9]{1,4}[A-Z]?$/i;
-    return roomRegex.test(roomNumber.toString().trim());
-  },
-
-  /**
-   * Valider une URL
+   * ✅ NOUVEAU: Valider une URL
    */
   isValidUrl(url) {
     if (!url) return false;
+    
     try {
       new URL(url);
       return true;
     } catch {
       return false;
     }
-  },
-
-  /**
-   * Validation générique de champ texte
-   */
-  validateTextField(value, options = {}) {
-    const {
-      required = true,
-      minLength = 0,
-      maxLength = 1000,
-      fieldName = 'Ce champ'
-    } = options;
-
-    const errors = [];
-
-    if (!value || value.trim() === '') {
-      if (required) {
-        errors.push(`${fieldName} est requis`);
-      }
-      return { isValid: !required, errors };
-    }
-
-    const trimmedValue = value.trim();
-
-    if (trimmedValue.length < minLength) {
-      errors.push(`${fieldName} doit contenir au moins ${minLength} caractères`);
-    }
-
-    if (trimmedValue.length > maxLength) {
-      errors.push(`${fieldName} ne peut pas dépasser ${maxLength} caractères`);
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
   }
 };
 
 // ========================================
-// 📅 PARTIE 3 : MANIPULATION DES DATES
-// ========================================
-
-export const dateUtils = {
-  /**
-   * Formater une date en français
-   */
-  formatDate(date, options = {}) {
-    if (!date) return '';
-
-    const dateObj = date instanceof Date ? date : new Date(date);
-
-    if (isNaN(dateObj.getTime())) {
-      console.warn('Date invalide:', date);
-      return '';
-    }
-
-    const defaultOptions = {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      ...options
-    };
-    
-    return dateObj.toLocaleDateString('fr-FR', defaultOptions);
-  },
-
-  /**
-   * Formater une date et heure
-   */
-  formatDateTime(date) {
-    if (!date) return '';
-
-    const dateObj = date instanceof Date ? date : new Date(date);
-
-    if (isNaN(dateObj.getTime())) return '';
-
-    return dateObj.toLocaleString('fr-FR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  },
-
-  /**
-   * Formater uniquement l'heure
-   */
-  formatTime(date) {
-    if (!date) return '';
-
-    const dateObj = date instanceof Date ? date : new Date(date);
-
-    if (isNaN(dateObj.getTime())) return '';
-
-    return dateObj.toLocaleTimeString('fr-FR', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  },
-
-  /**
-   * Calculer la différence entre deux dates
-   */
-  getTimeDifference(startDate, endDate = new Date()) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffMs = Math.abs(end - start);
-    
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    return { days, hours, minutes, milliseconds: diffMs };
-  },
-
-  /**
-   * Formater la durée
-   */
-  formatDuration(hours, minutes) {
-    if (hours > 24) {
-      const days = Math.floor(hours / 24);
-      const remainingHours = hours % 24;
-      return `${days}j ${remainingHours}h`;
-    }
-    if (hours > 0) {
-      return `${hours}h${minutes > 0 ? ` ${minutes}min` : ''}`;
-    }
-    return `${minutes}min`;
-  },
-
-  /**
-   * Obtenir le temps relatif (il y a X minutes/heures/jours)
-   */
-  getRelativeTime(date) {
-    if (!date) return '';
-
-    const dateObj = date instanceof Date ? date : new Date(date);
-    const now = new Date();
-    const diffMs = now - dateObj;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHours = Math.floor(diffMin / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffSec < 60) {
-      return 'À l\'instant';
-    } else if (diffMin < 60) {
-      return `Il y a ${diffMin} minute${diffMin > 1 ? 's' : ''}`;
-    } else if (diffHours < 24) {
-      return `Il y a ${diffHours} heure${diffHours > 1 ? 's' : ''}`;
-    } else if (diffDays < 30) {
-      return `Il y a ${diffDays} jour${diffDays > 1 ? 's' : ''}`;
-    } else {
-      return this.formatDate(dateObj, { year: 'numeric', month: 'short', day: 'numeric' });
-    }
-  },
-
-  /**
-   * Vérifier si une date est aujourd'hui
-   */
-  isToday(date) {
-    if (!date) return false;
-    
-    const today = new Date();
-    const checkDate = new Date(date);
-    
-    return today.toDateString() === checkDate.toDateString();
-  },
-
-  /**
-   * Vérifier si une date est hier
-   */
-  isYesterday(date) {
-    if (!date) return false;
-
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const checkDate = new Date(date);
-
-    return yesterday.toDateString() === checkDate.toDateString();
-  },
-
-  /**
-   * Vérifier si une date est cette semaine
-   */
-  isThisWeek(date) {
-    if (!date) return false;
-
-    const today = new Date();
-    const checkDate = new Date(date);
-    
-    // Obtenir le lundi de cette semaine
-    const startOfWeek = new Date(today);
-    const day = startOfWeek.getDay();
-    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
-    startOfWeek.setDate(diff);
-    startOfWeek.setHours(0, 0, 0, 0);
-
-    // Obtenir le dimanche de cette semaine
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6);
-    endOfWeek.setHours(23, 59, 59, 999);
-    
-    return checkDate >= startOfWeek && checkDate <= endOfWeek;
-  },
-
-  /**
-   * Obtenir le début de la journée
-   */
-  getStartOfDay(date = new Date()) {
-    const dateObj = new Date(date);
-    dateObj.setHours(0, 0, 0, 0);
-    return dateObj;
-  },
-
-  /**
-   * Obtenir la fin de la journée
-   */
-  getEndOfDay(date = new Date()) {
-    const dateObj = new Date(date);
-    dateObj.setHours(23, 59, 59, 999);
-    return dateObj;
-  },
-
-  /**
-   * Ajouter des jours à une date
-   */
-  addDays(date, days) {
-    const dateObj = new Date(date);
-    dateObj.setDate(dateObj.getDate() + days);
-    return dateObj;
-  },
-
-  /**
-   * Convertir un Timestamp Firebase en Date
-   */
-  timestampToDate(timestamp) {
-    if (!timestamp) return null;
-    
-    // Si c'est déjà une Date
-    if (timestamp instanceof Date) return timestamp;
-    
-    // Si c'est un Timestamp Firebase avec méthode toDate
-    if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-      return timestamp.toDate();
-    }
-    
-    // Si c'est un objet avec seconds
-    if (timestamp.seconds) {
-      return new Date(timestamp.seconds * 1000);
-    }
-    
-    // Sinon essayer de créer une Date
-    return new Date(timestamp);
-  }
-};
-
-// ========================================
-// 📊 PARTIE 4 : UTILITAIRES DIVERS
+// 🔄 PARTIE 7 : UTILITAIRES DIVERS
 // ========================================
 
 export const miscUtils = {
@@ -636,11 +520,11 @@ export const miscUtils = {
    * Générer un ID unique
    */
   generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substring(2);
+    return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   },
 
   /**
-   * Débouncer une fonction
+   * Debounce une fonction
    */
   debounce(func, wait = 300) {
     let timeout;
@@ -655,7 +539,7 @@ export const miscUtils = {
   },
 
   /**
-   * Throttler une fonction
+   * ✅ NOUVEAU: Throttle une fonction
    */
   throttle(func, limit = 300) {
     let inThrottle;
@@ -669,75 +553,38 @@ export const miscUtils = {
   },
 
   /**
-   * Capitaliser la première lettre
+   * ✅ NOUVEAU: Deep clone un objet
    */
-  capitalize(str) {
-    if (!str) return '';
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-  },
-
-  /**
-   * Tronquer un texte
-   */
-  truncate(str, length = 50, suffix = '...') {
-    if (!str || str.length <= length) return str;
-    return str.substring(0, length).trim() + suffix;
-  },
-
-  /**
-   * Copier du texte dans le presse-papier
-   */
-  async copyToClipboard(text) {
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
-        return true;
+  deepClone(obj) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj instanceof Date) return new Date(obj.getTime());
+    if (obj instanceof Array) return obj.map(item => this.deepClone(item));
+    if (obj instanceof Object) {
+      const clonedObj = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          clonedObj[key] = this.deepClone(obj[key]);
+        }
       }
-      // Fallback pour les navigateurs plus anciens
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return true;
-    } catch (error) {
-      console.error('Erreur lors de la copie:', error);
-      return false;
+      return clonedObj;
     }
   },
 
   /**
-   * Formater un nombre avec séparateurs
+   * ✅ NOUVEAU: Attendre X millisecondes
    */
-  formatNumber(num, locale = 'fr-FR') {
-    if (num === null || num === undefined) return '';
-    return new Intl.NumberFormat(locale).format(num);
-  },
-
-  /**
-   * Nettoyer une chaîne pour utilisation dans une URL
-   */
-  slugify(str) {
-    if (!str) return '';
-    return str
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 };
 
-// ========================================
-// 🎯 EXPORT PAR DÉFAUT
-// ========================================
-
+// Export par défaut avec tous les utils
 export default {
   file: fileUtils,
-  validation: validationUtils,
   date: dateUtils,
+  number: numberUtils,
+  string: stringUtils,
+  color: colorUtils,
+  validation: validationUtils,
   misc: miscUtils
 };
