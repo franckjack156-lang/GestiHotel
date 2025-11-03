@@ -1,5 +1,7 @@
-import React from 'react';
-import { Search, Plus, MapPin, Camera, AlertCircle } from 'lucide-react';
+// src/components/Interventions/InterventionsView.jsx - VERSION AVEC FILTRAGE TECHNICIEN
+import React, { useState, useMemo } from 'react';
+import { Search, Plus, MapPin, Camera, AlertCircle, Wrench, Filter, Eye } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const InterventionsView = ({ 
   interventions = [],
@@ -9,8 +11,11 @@ const InterventionsView = ({
   onSearchChange,
   filterStatus = 'all',
   onFilterChange,
-  dropdowns = {} // ✅ Ajout pour accéder aux labels des dropdowns
+  dropdowns = {}
 }) => {
+  const { user } = useAuth();
+  const [showAllInterventions, setShowAllInterventions] = useState(false);
+
   // ✅ Helper pour récupérer le label depuis les dropdowns
   const getRoomTypeLabel = (value) => {
     if (!value) return 'Non spécifié';
@@ -28,27 +33,46 @@ const InterventionsView = ({
   const getMainDisplay = (intervention) => {
     const roomTypeLabel = getRoomTypeLabel(intervention.roomType);
     
-    // Si c'est une chambre et qu'il y a un numéro
     if (intervention.roomType === 'chambre' && intervention.location) {
       return `${roomTypeLabel} ${intervention.location}`;
     }
     
-    // Sinon juste le type de local
     return roomTypeLabel;
   };
 
-  const filteredInterventions = interventions.filter(intervention => {
-    if (!intervention) return false;
+  // ✨ NOUVEAU : Filtrage automatique si l'utilisateur est lié à un technicien
+  const filteredInterventions = useMemo(() => {
+    let result = interventions;
+
+    // Filtrage automatique technicien
+    if (user?.linkedTechnicianId && !showAllInterventions) {
+      result = result.filter(intervention => {
+        // Vérifier si assignedTo contient l'ID du technicien lié
+        if (Array.isArray(intervention.assignedTo)) {
+          return intervention.assignedTo.includes(user.linkedTechnicianId);
+        }
+        return intervention.assignedTo === user.linkedTechnicianId;
+      });
+    }
+
+    // Filtrage par recherche
+    if (searchTerm) {
+      result = result.filter(intervention => {
+        if (!intervention) return false;
+        
+        return (intervention.location?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+               (intervention.missionSummary?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+               (intervention.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+      });
+    }
     
-    const matchesSearch = 
-      (intervention.location?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (intervention.missionSummary?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (intervention.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+    // Filtrage par statut
+    if (filterStatus !== 'all') {
+      result = result.filter(intervention => intervention.status === filterStatus);
+    }
     
-    const matchesStatus = filterStatus === 'all' || intervention.status === filterStatus;
-    
-    return matchesSearch && matchesStatus;
-  });
+    return result;
+  }, [interventions, user, showAllInterventions, searchTerm, filterStatus]);
 
   const statusCounts = {
     all: interventions.length,
@@ -90,6 +114,45 @@ const InterventionsView = ({
 
   return (
     <div className="space-y-6">
+      {/* ✨ NOUVEAU : Badge de filtrage technicien */}
+      {user?.linkedTechnicianId && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Wrench className="text-blue-600 dark:text-blue-400" size={20} />
+              <div>
+                <p className="font-medium text-blue-900 dark:text-blue-100">
+                  {showAllInterventions 
+                    ? 'Affichage de toutes les interventions' 
+                    : 'Vos interventions assignées'}
+                </p>
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  {showAllInterventions 
+                    ? `${interventions.length} interventions au total`
+                    : `${filteredInterventions.length} intervention(s) qui vous sont assignées`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowAllInterventions(!showAllInterventions)}
+              className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition flex items-center gap-2"
+            >
+              {showAllInterventions ? (
+                <>
+                  <Filter size={16} />
+                  Voir mes interventions uniquement
+                </>
+              ) : (
+                <>
+                  <Eye size={16} />
+                  Voir toutes les interventions
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* En-tête avec recherche et filtres */}
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="flex-1 relative">
@@ -135,37 +198,29 @@ const InterventionsView = ({
           <div
             key={intervention.id}
             onClick={() => onInterventionClick && onInterventionClick(intervention)}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 hover:shadow-md transition cursor-pointer group border border-gray-200 dark:border-gray-700"
+            className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg transition cursor-pointer"
           >
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex-1 min-w-0">
-                {/* ✅ Affichage : TYPE DE LOCAL + N° (si chambre) + Priorité */}
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <MapPin size={18} className="text-gray-500 flex-shrink-0" />
-                  
-                  {/* Type de local avec vraie casse */}
-                  <span className="font-semibold text-gray-800 dark:text-white text-lg">
-                    {getRoomTypeLabel(intervention.roomType)}
-                    {/* Ajouter le numéro si c'est une chambre */}
-                    {intervention.roomType === 'chambre' && intervention.location && ` ${intervention.location}`}
-                  </span>
-                  
-                  {/* Priorité avec vraie casse */}
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-3">
+                  <MapPin size={20} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                  <h3 className="text-xl font-bold text-gray-800 dark:text-white">
+                    {getMainDisplay(intervention)}
+                  </h3>
                   {intervention.priority && (
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(intervention.priority)}`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPriorityColor(intervention.priority)}`}>
                       {getPriorityLabel(intervention.priority)}
                     </span>
                   )}
                 </div>
                 
-                <p className="text-gray-600 dark:text-gray-300 mb-2 line-clamp-2">
-                  {intervention.missionSummary || intervention.description || 'Pas de description'}
+                <p className="text-gray-600 dark:text-gray-300 mb-3 line-clamp-2">
+                  {intervention.missionSummary || 'Aucune description'}
                 </p>
                 
                 <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-                  <span>#{intervention.id.slice(-8).toUpperCase()}</span>
                   <span>
-                    Créée le {intervention.createdAt?.toLocaleDateString?.('fr-FR') || 'Date inconnue'}
+                    {intervention.createdAt?.toLocaleDateString?.('fr-FR') || 'Date inconnue'}
                   </span>
                   {intervention.assignedToName && (
                     <span>Assignée à {intervention.assignedToName}</span>
@@ -173,7 +228,6 @@ const InterventionsView = ({
                 </div>
               </div>
               
-              {/* Badges de statut et photos */}
               <div className="text-right ml-4 flex-shrink-0 space-y-2">
                 <span className={`inline-flex px-3 py-1.5 rounded-lg text-sm font-medium ${getStatusColor(intervention.status)}`}>
                   {getStatusText(intervention.status)}
@@ -197,7 +251,7 @@ const InterventionsView = ({
               Aucune intervention trouvée
             </h3>
             <p className="text-gray-400 dark:text-gray-500">
-              {searchTerm || filterStatus !== 'all' 
+              {searchTerm || filterStatus !== 'all' || (user?.linkedTechnicianId && !showAllInterventions)
                 ? 'Essayez de modifier vos critères de recherche' 
                 : 'Créez votre première intervention'}
             </p>

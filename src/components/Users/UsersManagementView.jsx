@@ -1,54 +1,64 @@
-import React, { useState } from 'react';
-import { Plus, Search, Filter, MoreVertical, Edit, Trash2, Mail, Phone, Building } from 'lucide-react';
+// src/components/Users/UsersManagementView.jsx - VERSION COMPLETE CORRIGEE
 
-const UserManagementView = ({ 
-  users, 
-  onAddUser, 
-  onEditUser, 
-  onDeleteUser, 
+import React, { useState, useMemo } from 'react';
+import { Plus, Search, Filter, Edit, Mail, Trash2, UserX, UserCheck } from 'lucide-react';
+import UserManagementModal from './UserManagementModal';
+import { useUnifiedData } from '../../hooks/useUnifiedData'; // ← IMPORTANT : Importer
+
+const UsersManagementView = ({ 
+  users = [], 
+  currentUser,
+  onEditUser,
+  onAddUser,
   onUpdateUserPassword,
-  currentUser 
+  onDeleteUser
 }) => {
+  // ✨ NOUVEAU : Charger adminData
+  const { data: adminData, loading: adminDataLoading } = useUnifiedData(currentUser);
+
+  const [selectedUser, setSelectedUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.department?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    const matchesStatus = statusFilter === 'all' || 
-      (statusFilter === 'active' && user.active !== false) ||
-      (statusFilter === 'inactive' && user.active === false);
-    
-    return matchesSearch && matchesRole && matchesStatus;
-  });
-
-  const getRoleColor = (role) => {
-    const colors = {
-      superadmin: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-      manager: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-      technician: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-      reception: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
-    };
-    return colors[role] || colors.reception;
-  };
+  // Filtrage des utilisateurs
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => {
+      const matchesSearch = 
+        user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+      const matchesStatus = statusFilter === 'all' || 
+        (statusFilter === 'active' && user.active !== false) ||
+        (statusFilter === 'inactive' && user.active === false);
+      
+      return matchesSearch && matchesRole && matchesStatus;
+    });
+  }, [users, searchTerm, roleFilter, statusFilter]);
 
   const getRoleLabel = (role) => {
-    const labels = {
+    const roles = {
       superadmin: 'Super Admin',
       manager: 'Manager',
       technician: 'Technicien',
       reception: 'Réception'
     };
-    return labels[role] || role;
+    return roles[role] || role;
+  };
+
+  const getRoleColor = (role) => {
+    const colors = {
+      superadmin: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
+      manager: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
+      technician: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
+      reception: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+    };
+    return colors[role] || colors.reception;
   };
 
   const getStatusColor = (active) => {
-    return active !== false 
+    return active 
       ? 'text-green-600 dark:text-green-400'
       : 'text-red-600 dark:text-red-400';
   };
@@ -153,39 +163,29 @@ const UserManagementView = ({
                       )}
                     </div>
 
-                    {/* Informations utilisateur */}
+                    {/* Infos utilisateur */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h3 className="font-semibold text-gray-800 dark:text-white truncate">
-                          {user.name || 'Non renseigné'}
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">
+                          {user.name}
                         </h3>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 ${getRoleColor(user.role)}`}>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
                           {getRoleLabel(user.role)}
                         </span>
-                        <span className={`text-sm font-medium flex-shrink-0 ${getStatusColor(user.active)}`}>
-                          • {user.active !== false ? 'Actif' : 'Inactif'}
-                        </span>
                       </div>
-                      
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-                        <div className="flex items-center gap-1">
-                          <Mail size={14} />
-                          <span className="truncate">{user.email}</span>
-                        </div>
-                        
-                        {user.phone && (
-                          <div className="flex items-center gap-1">
-                            <Phone size={14} />
-                            <span>{user.phone}</span>
-                          </div>
-                        )}
-                        
+                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
+                        {user.email}
+                      </p>
+                      <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
                         {user.department && (
-                          <div className="flex items-center gap-1">
-                            <Building size={14} />
-                            <span>{user.department}</span>
-                          </div>
+                          <span>📍 {user.department}</span>
                         )}
+                        {user.phone && (
+                          <span>📞 {user.phone}</span>
+                        )}
+                        <span className={`font-medium ${getStatusColor(user.active !== false)}`}>
+                          {user.active !== false ? '✓ Actif' : '✗ Inactif'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -195,7 +195,7 @@ const UserManagementView = ({
                     {canEditUser(user) && (
                       <>
                         <button
-                          onClick={() => onEditUser(user)}
+                          onClick={() => setSelectedUser(user)}
                           className="p-2 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
                           title="Modifier"
                         >
@@ -244,8 +244,28 @@ const UserManagementView = ({
           </div>
         )}
       </div>
+
+      {/* ✨ MODAL UTILISATEUR AVEC adminData */}
+      {selectedUser && (
+        <UserManagementModal
+          isOpen={!!selectedUser}
+          onClose={() => setSelectedUser(null)}
+          user={selectedUser}
+          onUpdateUser={onEditUser}
+          onResetPassword={(userId) => {
+            // Logique de réinitialisation du mot de passe
+            console.log('Reset password for:', userId);
+          }}
+          onDeleteUser={onDeleteUser}
+          onActivateUser={(userId) => {
+            // Logique d'activation
+            console.log('Activate user:', userId);
+          }}
+          adminData={adminData} // ✅ PASSER adminData ICI
+        />
+      )}
     </div>
   );
 };
 
-export default UserManagementView;
+export default UsersManagementView;

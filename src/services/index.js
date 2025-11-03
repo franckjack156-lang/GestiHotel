@@ -1,4 +1,6 @@
 // src/services/index.js - SERVICE UNIFIÉ CENTRALISÉ
+// VERSION MODIFIEE avec gestion du lien technicien
+
 import { 
   collection, addDoc, updateDoc, doc, deleteDoc,
   serverTimestamp, arrayUnion, query, where, getDocs, getDoc
@@ -192,8 +194,12 @@ export const interventionService = {
 
 // ==========================================
 // 👤 USERS SERVICE
+// ✨ VERSION MODIFIEE avec gestion du lien technicien
 // ==========================================
 export const userService = {
+  /**
+   * Créer un utilisateur
+   */
   async create(userData) {
     try {
       const functions = getFunctions();
@@ -206,20 +212,99 @@ export const userService = {
     }
   },
 
-  async update(userId, updates, currentUser) {
+  /**
+   * Mettre à jour un utilisateur
+   * ✨ NOUVEAU : Gère le lien bidirectionnel avec les techniciens
+   */
+  async update(userId, userData, currentUser) {
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        ...updates,
+      if (!currentUser || (currentUser.role !== 'superadmin' && currentUser.role !== 'manager')) {
+        return { success: false, error: 'Permission refusée' };
+      }
+
+      if (!userData.email || !userData.name) {
+        return { success: false, error: 'Champs obligatoires manquants' };
+      }
+
+      // Préparer les données de mise à jour
+      const updateData = {
+        ...userData,
         updatedAt: serverTimestamp(),
-        updatedBy: currentUser.uid
-      });
+        updatedBy: currentUser.uid,
+        updatedByName: currentUser.name
+      };
+
+      // ✨ NOUVEAU : Gestion du lien bidirectionnel avec les techniciens
+      
+      // 1. Si un technicien est lié
+      if (userData.linkedTechnicianId && userData.linkedTechnicianId !== '') {
+        try {
+          // Mettre à jour le technicien dans adminData avec le lien vers l'utilisateur
+          await updateDoc(doc(db, 'adminData', userData.linkedTechnicianId), {
+            linkedUserId: userId,
+            linkedUserName: userData.name,
+            updatedAt: serverTimestamp()
+          });
+          
+          console.log(`✅ Lien créé: User ${userId} (${userData.name}) <-> Technicien ${userData.linkedTechnicianId}`);
+        } catch (linkError) {
+          console.error('⚠️ Erreur lors de la mise à jour du lien technicien:', linkError);
+          // On continue quand même pour mettre à jour l'utilisateur
+        }
+      }
+      
+      // 2. Si on supprime le lien (linkedTechnicianId === '')
+      else if (userData.linkedTechnicianId === '' || userData.linkedTechnicianId === null) {
+        try {
+          // Récupérer l'ancien lien s'il existe
+          const userDoc = await getDoc(doc(db, 'users', userId));
+          const oldLinkedTechId = userDoc.data()?.linkedTechnicianId;
+          
+          if (oldLinkedTechId) {
+            // Supprimer le lien côté technicien
+            await updateDoc(doc(db, 'adminData', oldLinkedTechId), {
+              linkedUserId: null,
+              linkedUserName: null,
+              updatedAt: serverTimestamp()
+            });
+            console.log(`🔗 Lien supprimé avec technicien ${oldLinkedTechId}`);
+          }
+        } catch (unlinkError) {
+          console.error('⚠️ Erreur lors de la suppression du lien technicien:', unlinkError);
+          // On continue quand même
+        }
+      }
+
+      // 3. Mettre à jour l'utilisateur
+      await updateDoc(doc(db, 'users', userId), updateData);
+
+      console.log(`✅ Utilisateur ${userId} mis à jour avec succès`);
       return { success: true };
+
     } catch (error) {
-      console.error('Erreur mise à jour utilisateur:', error);
-      return { success: false, error: error.message };
+      console.error('❌ Erreur mise à jour utilisateur:', error);
+      
+      let errorMessage = 'Erreur lors de la mise à jour de l\'utilisateur';
+      
+      switch (error.code) {
+        case 'permission-denied':
+          errorMessage = 'Permission refusée';
+          break;
+        case 'not-found':
+          errorMessage = 'Utilisateur non trouvé';
+          break;
+        case 'unavailable':
+          errorMessage = 'Service temporairement indisponible';
+          break;
+      }
+      
+      return { success: false, error: errorMessage };
     }
   },
 
+  /**
+   * Supprimer un utilisateur (via Cloud Function)
+   */
   async delete(userId) {
     try {
       const functions = getFunctions();
@@ -232,6 +317,9 @@ export const userService = {
     }
   },
 
+  /**
+   * Désactiver un utilisateur (soft delete)
+   */
   async deactivate(userId, currentUser) {
     try {
       await updateDoc(doc(db, 'users', userId), {
@@ -246,6 +334,9 @@ export const userService = {
     }
   },
 
+  /**
+   * Modifier le mot de passe d'un utilisateur
+   */
   async updatePassword(userId, data) {
     try {
       const functions = getFunctions();
@@ -297,7 +388,6 @@ export const storageService = {
       });
       const results = await Promise.all(uploads);
       
-      // Filtrer les uploads réussis
       const successfulUploads = results.filter(r => r.success);
       const urls = successfulUploads.map(r => r.url);
       
@@ -313,7 +403,6 @@ export const storageService = {
       throw new Error(`Fichier trop volumineux (max: ${maxSize / 1024 / 1024}MB)`);
     }
     
-    // Vérifier le type de fichier (images uniquement)
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
       throw new Error('Type de fichier non autorisé. Utilisez JPG, PNG ou GIF.');
@@ -392,7 +481,6 @@ export const syncService = {
   },
 
   async executeAction(action, userId) {
-    // Implémentation basée sur action.type
     switch (action.type) {
       case 'ADD_INTERVENTION':
         return await interventionService.create(action.data, { uid: userId });
@@ -448,7 +536,6 @@ export const dataService = {
   },
 
   async checkIfUsed(category, itemId) {
-    // Vérifier si l'item est utilisé dans des interventions
     const q = query(collection(db, 'interventions'));
     const snapshot = await getDocs(q);
     
