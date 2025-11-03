@@ -1,50 +1,70 @@
-// src/hooks/useFirestore.js - HOOK GÉNÉRIQUE RÉUTILISABLE
-import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { useState, useEffect, useMemo } from 'react';
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  onSnapshot,
+  getDocs 
+} from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 /**
- * Hook générique pour gérer n'importe quelle collection Firestore
- * 
- * @param {string} collectionName - Nom de la collection
- * @param {object} options - Options de requête
- * @param {array} options.filters - Filtres where (ex: [['status', '==', 'active']])
- * @param {array} options.orderBy - Tri (ex: [['createdAt', 'desc']])
- * @param {number} options.limit - Limite de résultats
- * @param {boolean} options.realtime - Activer les updates en temps réel
- * @param {function} options.transform - Fonction de transformation des données
+ * Hook Firestore optimisé avec gestion du cache et des re-renders
  */
-export const useFirestore = (collectionName, options = {}) => {
+const useFirestore = (collectionName, options = {}) => {
   const {
     filters = [],
     orderByFields = [],
-    limit: queryLimit,
-    realtime = true,
-    transform = (data) => data
+    queryLimit = null,
+    realtime = false,
+    transform = (item) => item
   } = options;
 
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Mémoïser les filtres pour éviter les re-renders inutiles
+  const memoizedFilters = useMemo(() => {
+    return filters.map(f => ({
+      field: f[0],
+      operator: f[1],
+      value: f[2]
+    }));
+  }, [JSON.stringify(filters)]);
+
+  // Mémoïser les ordres pour éviter les re-renders inutiles
+  const memoizedOrderBy = useMemo(() => {
+    return orderByFields.map(o => ({
+      field: o[0],
+      direction: o[1]
+    }));
+  }, [JSON.stringify(orderByFields)]);
+
   useEffect(() => {
     if (!collectionName) {
+      setError('Nom de collection requis');
       setLoading(false);
       return;
     }
+
+    setLoading(true);
+    setError(null);
 
     try {
       // Construire la requête
       let q = collection(db, collectionName);
 
       // Appliquer les filtres
-      filters.forEach(([field, operator, value]) => {
-        q = query(q, where(field, operator, value));
+      memoizedFilters.forEach(filter => {
+        q = query(q, where(filter.field, filter.operator, filter.value));
       });
 
-      // Appliquer le tri
-      orderByFields.forEach(([field, direction]) => {
-        q = query(q, orderBy(field, direction));
+      // Appliquer les tris
+      memoizedOrderBy.forEach(order => {
+        q = query(q, orderBy(order.field, order.direction));
       });
 
       // Appliquer la limite
@@ -52,8 +72,8 @@ export const useFirestore = (collectionName, options = {}) => {
         q = query(q, limit(queryLimit));
       }
 
-      // Écouter les changements en temps réel ou charger une fois
       if (realtime) {
+        // Écoute en temps réel
         const unsubscribe = onSnapshot(
           q,
           (snapshot) => {
@@ -73,23 +93,26 @@ export const useFirestore = (collectionName, options = {}) => {
         return () => unsubscribe();
       } else {
         // Chargement unique
-        getDocs(q).then(snapshot => {
-          const items = snapshot.docs.map(doc => 
-            transform({ id: doc.id, ...doc.data() })
-          );
-          setData(items);
-          setLoading(false);
-        }).catch(err => {
-          setError(err.message);
-          setLoading(false);
-        });
+        getDocs(q)
+          .then(snapshot => {
+            const items = snapshot.docs.map(doc => 
+              transform({ id: doc.id, ...doc.data() })
+            );
+            setData(items);
+            setLoading(false);
+          })
+          .catch(err => {
+            console.error(`Erreur Firestore [${collectionName}]:`, err);
+            setError(err.message);
+            setLoading(false);
+          });
       }
     } catch (err) {
       console.error(`Erreur configuration requête [${collectionName}]:`, err);
       setError(err.message);
       setLoading(false);
     }
-  }, [collectionName, JSON.stringify(filters), JSON.stringify(orderByFields), queryLimit, realtime]);
+  }, [collectionName, memoizedFilters, memoizedOrderBy, queryLimit, realtime]);
 
   return { data, loading, error };
 };
@@ -102,9 +125,12 @@ export const useFirestore = (collectionName, options = {}) => {
  * Hook pour les interventions
  */
 export const useInterventions = (user) => {
-  const filters = user?.role === 'technician' 
-    ? [['assignedTo', '==', user.uid]]
-    : [];
+  const filters = useMemo(() => {
+    if (user?.role === 'technician') {
+      return [['assignedTo', '==', user.uid]];
+    }
+    return [];
+  }, [user?.role, user?.uid]);
 
   const { data, loading, error } = useFirestore('interventions', {
     filters,
@@ -112,20 +138,24 @@ export const useInterventions = (user) => {
     realtime: true,
     transform: (item) => ({
       ...item,
-      createdAt: item.createdAt?.toDate?.() || new Date()
+      createdAt: item.createdAt?.toDate?.() || new Date(),
+      updatedAt: item.updatedAt?.toDate?.() || null
     })
   });
+
+  const stats = useMemo(() => ({
+    total: data.length,
+    todo: data.filter(i => i.status === 'todo').length,
+    inProgress: data.filter(i => i.status === 'inprogress').length,
+    completed: data.filter(i => i.status === 'completed').length,
+    cancelled: data.filter(i => i.status === 'cancelled').length
+  }), [data]);
 
   return {
     interventions: data,
     loading,
     error,
-    stats: {
-      total: data.length,
-      todo: data.filter(i => i.status === 'todo').length,
-      inProgress: data.filter(i => i.status === 'inprogress').length,
-      completed: data.filter(i => i.status === 'completed').length
-    }
+    stats
   };
 };
 
@@ -133,7 +163,9 @@ export const useInterventions = (user) => {
  * Hook pour les utilisateurs
  */
 export const useUsers = (roleFilter = null) => {
-  const filters = roleFilter ? [['role', '==', roleFilter]] : [];
+  const filters = useMemo(() => {
+    return roleFilter ? [['role', '==', roleFilter]] : [];
+  }, [roleFilter]);
 
   return useFirestore('users', {
     filters,
@@ -141,7 +173,8 @@ export const useUsers = (roleFilter = null) => {
     realtime: true,
     transform: (user) => ({
       ...user,
-      createdAt: user.createdAt?.toDate?.() || new Date()
+      createdAt: user.createdAt?.toDate?.() || new Date(),
+      lastLogin: user.lastLogin?.toDate?.() || null
     })
   });
 };
@@ -153,26 +186,62 @@ export const useBlockedRooms = () => {
   return useFirestore('blockedRooms', {
     filters: [['blocked', '==', true]],
     orderByFields: [['blockedAt', 'desc']],
+    realtime: true,
+    transform: (room) => ({
+      ...room,
+      blockedAt: room.blockedAt?.toDate?.() || new Date(),
+      unblockedAt: room.unblockedAt?.toDate?.() || null
+    })
+  });
+};
+
+/**
+ * Hook pour les options dropdown
+ */
+export const useDropdownOptions = (category) => {
+  const filters = useMemo(() => {
+    return category ? [['category', '==', category]] : [];
+  }, [category]);
+
+  return useFirestore('dropdownOptions', {
+    filters,
+    orderByFields: [['name', 'asc']],
     realtime: true
   });
 };
 
 /**
- * Hook pour les options dropdown/admin
+ * Hook pour les données admin
  */
-export const useDropdownOptions = (category) => {
-  return useFirestore('dropdownOptions', {
-    filters: [['category', '==', category]],
+export const useAdminData = (type) => {
+  const filters = useMemo(() => {
+    return type ? [['type', '==', type]] : [];
+  }, [type]);
+
+  return useFirestore('adminData', {
+    filters,
     orderByFields: [['name', 'asc']],
     realtime: true
   });
 };
 
-export const useAdminData = (type) => {
-  return useFirestore('adminData', {
-    filters: [['type', '==', type]],
-    orderByFields: [['name', 'asc']],
-    realtime: true
+/**
+ * Hook pour les notifications
+ */
+export const useNotifications = (userId) => {
+  const filters = useMemo(() => {
+    return userId ? [['userId', '==', userId]] : [];
+  }, [userId]);
+
+  return useFirestore('notifications', {
+    filters,
+    orderByFields: [['createdAt', 'desc']],
+    queryLimit: 50,
+    realtime: true,
+    transform: (notif) => ({
+      ...notif,
+      createdAt: notif.createdAt?.toDate?.() || new Date()
+    })
   });
 };
 

@@ -1,42 +1,32 @@
-// vite.config.js
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    react({
-      // Fast Refresh
-      fastRefresh: true,
-      // Babel config pour optimisations
-      babel: {
-        plugins: [
-          // Remove console.log in production
-          process.env.NODE_ENV === 'production' && [
-            'transform-remove-console',
-            { exclude: ['error', 'warn'] }
-          ]
-        ].filter(Boolean)
-      }
-    }),
-    
+    react(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
       
       manifest: {
-        name: 'GestiHôtel - Gestion d\'Interventions',
+        name: 'GestiHôtel - Gestion des Interventions',
         short_name: 'GestiHôtel',
         description: 'Application de gestion des interventions hôtelières',
-        theme_color: '#4F46E5',
+        theme_color: '#3b82f6',
         background_color: '#ffffff',
         display: 'standalone',
-        orientation: 'portrait',
-        start_url: '/',
         scope: '/',
-        
+        start_url: '/',
+        orientation: 'portrait',
         icons: [
+          {
+            src: 'pwa-64x64.png',
+            sizes: '64x64',
+            type: 'image/png'
+          },
           {
             src: 'pwa-192x192.png',
             sizes: '192x192',
@@ -45,40 +35,20 @@ export default defineConfig({
           {
             src: 'pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'maskable-icon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'maskable'
           }
-        ],
-        
-        shortcuts: [
-          {
-            name: 'Nouvelle intervention',
-            short_name: 'Nouvelle',
-            description: 'Créer une nouvelle intervention',
-            url: '/interventions/new',
-            icons: [{ src: '/icons/new.png', sizes: '96x96' }]
-          },
-          {
-            name: 'Scanner QR',
-            short_name: 'Scanner',
-            description: 'Scanner un QR code',
-            url: '/scan',
-            icons: [{ src: '/icons/scan.png', sizes: '96x96' }]
-          }
-        ],
-        
-        categories: ['productivity', 'business']
+        ]
       },
       
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        
-        // Cache strategies
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -87,7 +57,7 @@ export default defineConfig({
               cacheName: 'google-fonts-cache',
               expiration: {
                 maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 year
+                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 an
               },
               cacheableResponse: {
                 statuses: [0, 200]
@@ -95,13 +65,13 @@ export default defineConfig({
             }
           },
           {
-            urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/i,
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'firebase-storage-cache',
+              cacheName: 'gstatic-fonts-cache',
               expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 an
               },
               cacheableResponse: {
                 statuses: [0, 200]
@@ -121,28 +91,40 @@ export default defineConfig({
             }
           },
           {
+            urlPattern: /^https:\/\/.*\.firebasestorage\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'firebase-storage-cache',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24 * 7 // 7 jours
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          },
+          {
             urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'images-cache',
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
+                maxAgeSeconds: 60 * 60 * 24 * 30 // 30 jours
               }
             }
           }
         ],
         
-        // Skip waiting
         skipWaiting: true,
         clientsClaim: true,
-        
-        // Clean up old caches
         cleanupOutdatedCaches: true
       },
       
+      // IMPORTANT: Service Worker désactivé en développement
       devOptions: {
-        enabled: true,
+        enabled: false, // Désactivé en dev pour éviter les problèmes de cache
         type: 'module'
       }
     })
@@ -157,6 +139,7 @@ export default defineConfig({
       '@services': path.resolve(__dirname, './src/services'),
       '@utils': path.resolve(__dirname, './src/utils'),
       '@contexts': path.resolve(__dirname, './src/contexts'),
+      '@config': path.resolve(__dirname, './src/config'),
       '@types': path.resolve(__dirname, './src/types')
     }
   },
@@ -170,7 +153,7 @@ export default defineConfig({
       compress: {
         drop_console: true,
         drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info'],
+        pure_funcs: ['console.log', 'console.info', 'console.debug'],
         passes: 2
       },
       mangle: {
@@ -187,7 +170,6 @@ export default defineConfig({
         manualChunks: {
           // Vendor chunks
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
           'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
           'ui-vendor': ['lucide-react', 'framer-motion'],
           'chart-vendor': ['recharts'],
@@ -228,8 +210,8 @@ export default defineConfig({
     // Chunk size warnings
     chunkSizeWarningLimit: 1000,
     
-    // Source maps (disabled in production for security)
-    sourcemap: process.env.NODE_ENV !== 'production',
+    // Source maps désactivés en production pour la sécurité
+    sourcemap: false,
     
     // CSS code splitting
     cssCodeSplit: true,
@@ -250,7 +232,7 @@ export default defineConfig({
       overlay: true
     },
     
-    // Proxy pour éviter les CORS en dev
+    // Proxy pour éviter les CORS en dev (si nécessaire)
     proxy: {
       '/api': {
         target: 'http://localhost:5001',
@@ -287,12 +269,6 @@ export default defineConfig({
   
   // CSS
   css: {
-    devSourcemap: true,
-    preprocessorOptions: {
-      // Si vous utilisez SCSS
-      // scss: {
-      //   additionalData: `@import "@/styles/variables.scss";`
-      // }
-    }
+    devSourcemap: true
   }
 });
