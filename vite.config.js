@@ -259,7 +259,16 @@ export default defineConfig({
       'firebase/functions'
     ]
   },
-  
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.js',
+    coverage: {
+      provider: 'c8',
+      reporter: ['text', 'html', 'lcov'],
+      exclude: ['node_modules/', 'src/setupTests.js']
+    }
+  },
   // Esbuild options
   esbuild: {
     logOverride: { 'this-is-undefined-in-esm': 'silent' },
@@ -271,4 +280,5 @@ export default defineConfig({
   css: {
     devSourcemap: true
   }
+  
 });

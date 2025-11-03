@@ -1,14 +1,33 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Download, BarChart, PieChart, TrendingUp, Calendar, 
+  BarChart, PieChart, TrendingUp, Calendar, 
   Clock, Users, MapPin, AlertCircle, Filter
 } from 'lucide-react';
+import ExportButton from '../common/ExportButton';
 
-const AnalyticsView = ({ stats, onExportData }) => {
+const AnalyticsView = ({ stats, interventions = [] }) => {
   const [dateRange, setDateRange] = useState('month');
   const [chartType, setChartType] = useState('bar');
 
-  // Données simulées pour les graphiques (à remplacer par vos vraies données)
+  // ✅ Filtrer interventions par période
+  const filteredInterventions = useMemo(() => {
+    const now = new Date();
+    return interventions.filter(i => {
+      if (!i.createdAt) return false;
+      
+      const createdDate = i.createdAt instanceof Date ? i.createdAt : new Date(i.createdAt);
+      const diffDays = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+
+      switch (dateRange) {
+        case 'week': return diffDays <= 7;
+        case 'month': return diffDays <= 30;
+        case 'quarter': return diffDays <= 90;
+        case 'year': return diffDays <= 365;
+        default: return true;
+      }
+    });
+  }, [interventions, dateRange]);
+
   const chartData = useMemo(() => {
     const baseData = {
       interventionsByStatus: [
@@ -39,7 +58,7 @@ const AnalyticsView = ({ stats, onExportData }) => {
 
   return (
     <div className="space-y-6">
-      {/* En-tête */}
+      {/* ✅ EN-TÊTE AVEC EXPORT */}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
@@ -60,13 +79,18 @@ const AnalyticsView = ({ stats, onExportData }) => {
             <option value="quarter">Ce trimestre</option>
             <option value="year">Cette année</option>
           </select>
-          <button
-            onClick={() => onExportData('interventions')}
-            className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition flex items-center gap-2"
-          >
-            <Download size={20} />
-            Exporter
-          </button>
+
+          {/* ✅ BOUTON EXPORT */}
+          <ExportButton
+            data={filteredInterventions}
+            type="analytics"
+            filters={{ dateRange }}
+            options={{
+              title: `Rapport Analytics - ${dateRange === 'week' ? 'Semaine' : dateRange === 'month' ? 'Mois' : dateRange === 'quarter' ? 'Trimestre' : 'Année'}`,
+              includeStats: true,
+              includeHistory: true
+            }}
+          />
         </div>
       </div>
 
@@ -169,7 +193,6 @@ const AnalyticsView = ({ stats, onExportData }) => {
           ) : (
             <div className="flex items-center justify-center">
               <div className="relative w-48 h-48">
-                {/* Graphique circulaire simplifié */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="text-center">
                     <div className="text-2xl font-bold text-gray-800 dark:text-white">

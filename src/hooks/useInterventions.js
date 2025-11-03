@@ -1,3 +1,7 @@
+// src/hooks/useInterventions.js
+// ✅ COMPLÉTÉ : Hook avec toutes les fonctions CRUD
+// Version finale avec add/update/delete/pagination
+
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   collection, 
@@ -8,79 +12,40 @@ import {
   onSnapshot,
   addDoc,
   updateDoc,
+  deleteDoc,
   doc,
   serverTimestamp,
   startAfter,
-  getDocs,
-  writeBatch
+  getDocs
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../config/firebase.js';
-import { toast } from '../utils/toast'; // ✨ NOUVEAU
+import { db, storage } from '../config/firebase';
+import { toast } from '../utils/toast';
 
 export const useInterventions = (user, options = {}) => {
   const {
     pageSize = 50,
-    enablePagination = true,
+    enablePagination = false,
     autoRefresh = true
   } = options;
 
   const [interventions, setInterventions] = useState([]);
-  const [blockedRooms, setBlockedRooms] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [lastDoc, setLastDoc] = useState(null);
 
-  // ✅ OPTIMISATION 1 : Pagination
-  const loadMore = useCallback(async () => {
-    if (!hasMore || !user) return;
+  // ===================================
+  // CHARGEMENT INITIAL & TEMPS RÉEL
+  // ===================================
 
-    try {
-      let q = query(
-        collection(db, 'interventions'),
-        orderBy('createdAt', 'desc'),
-        limit(pageSize)
-      );
-
-      if (user.role === 'technician') {
-        q = query(q, where('assignedTo', '==', user.uid));
-      }
-
-      if (lastDoc) {
-        q = query(q, startAfter(lastDoc));
-      }
-
-      const snapshot = await getDocs(q);
-      
-      if (snapshot.empty) {
-        setHasMore(false);
-        return;
-      }
-
-      const newInterventions = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate?.() || new Date()
-      }));
-
-      setInterventions(prev => [...prev, ...newInterventions]);
-      setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-      
-      if (snapshot.docs.length < pageSize) {
-        setHasMore(false);
-      }
-    } catch (error) {
-      console.error('Erreur pagination:', error);
-      toast.error('Erreur chargement interventions');
-    }
-  }, [user, hasMore, lastDoc, pageSize]);
-
-  // ✅ OPTIMISATION 2 : Debounced Real-time Updates
   useEffect(() => {
     if (!user || !autoRefresh) {
       setLoading(false);
       return;
     }
+
+    console.log('🔄 useInterventions: Démarrage écoute Firebase');
 
     let q = query(
       collection(db, 'interventions'),
@@ -88,149 +53,364 @@ export const useInterventions = (user, options = {}) => {
       limit(pageSize)
     );
 
+    // Filtrer par technicien si role = technician
     if (user.role === 'technician') {
-      q = query(q, where('assignedTo', '==', user.uid));
+      q = query(
+        collection(db, 'interventions'),
+        where('assignedTo', '==', user.uid),
+        orderBy('createdAt', 'desc'),
+        limit(pageSize)
+      );
     }
 
-    // Debounce pour éviter trop d'updates
-    let timeoutId;
-    const unsubscribe = onSnapshot(q, 
+    const unsubscribe = onSnapshot(
+      q,
       (snapshot) => {
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-          const interventionsData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            createdAt: doc.data().createdAt?.toDate?.() || new Date()
-          }));
-          
-          setInterventions(interventionsData);
-          setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-          setLoading(false);
-        }, 300); // Attendre 300ms avant de mettre à jour
-      },
-      (error) => {
-        console.error('Erreur snapshot:', error);
+        const interventionsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate?.() || new Date(),
+          updatedAt: doc.data().updatedAt?.toDate?.() || null,
+          startedAt: doc.data().startedAt?.toDate?.() || null,
+          completedAt: doc.data().completedAt?.toDate?.() || null
+        }));
+
+        console.log('📥 useInterventions: Interventions chargées:', interventionsData.length);
+        setInterventions(interventionsData);
         setLoading(false);
+
+        // Mettre à jour lastDoc pour pagination
+        if (snapshot.docs.length > 0) {
+          setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+        }
+        
+        setHasMore(snapshot.docs.length >= pageSize);
+      },
+      (err) => {
+        console.error('❌ useInterventions: Erreur Firestore:', err);
+        setError(err.message);
+        setLoading(false);
+        toast.error('Erreur chargement interventions');
       }
     );
 
     return () => {
-      clearTimeout(timeoutId);
+      console.log('🛑 useInterventions: Arrêt écoute Firebase');
       unsubscribe();
     };
   }, [user, autoRefresh, pageSize]);
 
-  // ✅ OPTIMISATION 3 : Memoization des calculs coûteux
-  const stats = useMemo(() => ({
-    total: interventions.length,
-    todo: interventions.filter(i => i.status === 'todo').length,
-    inProgress: interventions.filter(i => i.status === 'inprogress').length,
-    completed: interventions.filter(i => i.status === 'completed').length,
-    urgent: interventions.filter(i => i.priority === 'urgent').length
-  }), [interventions]);
+  // ===================================
+  // PAGINATION
+  // ===================================
 
-  // ✅ OPTIMISATION 4 : Batch Writes
-  const updateMultipleInterventions = useCallback(async (updates) => {
+  const loadMore = useCallback(async () => {
+    if (!hasMore || !user || !lastDoc) return;
+
+    console.log('📄 useInterventions: Chargement page suivante');
+
     try {
-      const batch = writeBatch(db);
-      
-      updates.forEach(({ id, data }) => {
-        const ref = doc(db, 'interventions', id);
-        batch.update(ref, {
-          ...data,
-          updatedAt: serverTimestamp()
-        });
-      });
+      let q = query(
+        collection(db, 'interventions'),
+        orderBy('createdAt', 'desc'),
+        startAfter(lastDoc),
+        limit(pageSize)
+      );
 
-      await batch.commit();
-      
-      toast.success(`${updates.length} interventions mises à jour`);
-      
+      if (user.role === 'technician') {
+        q = query(
+          collection(db, 'interventions'),
+          where('assignedTo', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+          startAfter(lastDoc),
+          limit(pageSize)
+        );
+      }
+
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        setHasMore(false);
+        console.log('✅ Plus d\'interventions à charger');
+        return;
+      }
+
+      const newInterventions = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate?.() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate?.() || null
+      }));
+
+      setInterventions(prev => [...prev, ...newInterventions]);
+      setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+      setHasMore(snapshot.docs.length >= pageSize);
+
+      console.log('✅ Page chargée:', newInterventions.length, 'interventions');
+    } catch (error) {
+      console.error('❌ Erreur pagination:', error);
+      toast.error('Erreur chargement page');
+    }
+  }, [hasMore, lastDoc, pageSize, user]);
+
+  // ===================================
+  // STATISTIQUES
+  // ===================================
+
+  const stats = useMemo(() => {
+    const total = interventions.length;
+    const todo = interventions.filter(i => i.status === 'todo').length;
+    const inProgress = interventions.filter(i => i.status === 'inprogress').length;
+    const completed = interventions.filter(i => i.status === 'completed').length;
+    const cancelled = interventions.filter(i => i.status === 'cancelled').length;
+
+    const completionRate = total > 0 
+      ? Math.round((completed / total) * 100) 
+      : 0;
+
+    // Calculer temps moyen de résolution (en minutes)
+    const completedWithTime = interventions.filter(i => 
+      i.status === 'completed' && i.startedAt && i.completedAt
+    );
+
+    const averageTime = completedWithTime.length > 0
+      ? Math.round(
+          completedWithTime.reduce((sum, i) => {
+            const duration = (i.completedAt - i.startedAt) / 1000 / 60; // en minutes
+            return sum + duration;
+          }, 0) / completedWithTime.length
+        )
+      : 0;
+
+    return {
+      total,
+      todo,
+      inProgress,
+      completed,
+      cancelled,
+      completionRate,
+      averageTime
+    };
+  }, [interventions]);
+
+  // ===================================
+  // CRÉER INTERVENTION
+  // ===================================
+
+  const addIntervention = async (interventionData, photos = []) => {
+    try {
+      console.log('➕ Création intervention:', interventionData);
+
+      // Upload photos si présentes
+      let photoUrls = [];
+      if (photos.length > 0) {
+        console.log('📸 Upload', photos.length, 'photo(s)');
+        
+        photoUrls = await Promise.all(
+          photos.map(async (photo) => {
+            const timestamp = Date.now();
+            const fileName = `${timestamp}_${photo.name}`;
+            const storageRef = ref(storage, `interventions/${fileName}`);
+            
+            await uploadBytes(storageRef, photo);
+            const url = await getDownloadURL(storageRef);
+            
+            return {
+              url,
+              fileName: photo.name,
+              uploadedAt: new Date().toISOString(),
+              uploadedBy: user.uid,
+              uploadedByName: user.name || user.email
+            };
+          })
+        );
+      }
+
+      // Créer le document intervention
+      const newIntervention = {
+        ...interventionData,
+        photos: photoUrls,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: user.uid,
+        createdByName: user.name || user.email,
+        history: [
+          {
+            id: `history_${Date.now()}`,
+            status: 'todo',
+            date: new Date().toISOString(),
+            by: user.uid,
+            byName: user.name || user.email,
+            comment: 'Intervention créée'
+          }
+        ],
+        messages: []
+      };
+
+      const docRef = await addDoc(collection(db, 'interventions'), newIntervention);
+
+      console.log('✅ Intervention créée:', docRef.id);
+      toast.success('Intervention créée avec succès');
+
+      return { success: true, id: docRef.id };
+    } catch (error) {
+      console.error('❌ Erreur création intervention:', error);
+      toast.error('Erreur lors de la création', { description: error.message });
+      return { success: false, error: error.message };
+    }
+  };
+
+  // ===================================
+  // METTRE À JOUR INTERVENTION
+  // ===================================
+
+  const updateIntervention = async (interventionId, updates) => {
+    try {
+      console.log('📝 Mise à jour intervention:', interventionId, updates);
+
+      const intervention = interventions.find(i => i.id === interventionId);
+      if (!intervention) {
+        throw new Error('Intervention non trouvée');
+      }
+
+      // Préparer les données de mise à jour
+      const updateData = {
+        ...updates,
+        updatedAt: serverTimestamp()
+      };
+
+      // Ajouter à l'historique si changement de statut
+      if (updates.status && updates.status !== intervention.status) {
+        updateData.history = [
+          ...(intervention.history || []),
+          {
+            id: `history_${Date.now()}`,
+            status: updates.status,
+            date: new Date().toISOString(),
+            by: user.uid,
+            byName: user.name || user.email,
+            comment: updates.comment || `Statut changé en ${updates.status}`
+          }
+        ];
+
+        // Ajouter timestamp de démarrage si passage en inprogress
+        if (updates.status === 'inprogress' && !intervention.startedAt) {
+          updateData.startedAt = serverTimestamp();
+        }
+
+        // Ajouter timestamp de complétion si passage en completed
+        if (updates.status === 'completed' && !intervention.completedAt) {
+          updateData.completedAt = serverTimestamp();
+        }
+      }
+
+      await updateDoc(doc(db, 'interventions', interventionId), updateData);
+
+      console.log('✅ Intervention mise à jour');
+      toast.success('Intervention mise à jour');
+
       return { success: true };
     } catch (error) {
-      console.error('Erreur batch update:', error);
+      console.error('❌ Erreur mise à jour intervention:', error);
+      toast.error('Erreur lors de la mise à jour', { description: error.message });
       return { success: false, error: error.message };
     }
-  }, []);
+  };
 
-  // ✅ OPTIMISATION 5 : Upload optimisé avec compression
-  const uploadPhoto = useCallback(async (file, interventionId) => {
+  // ===================================
+  // SUPPRIMER INTERVENTION
+  // ===================================
+
+  const deleteIntervention = async (interventionId) => {
     try {
-      // Compression image avant upload
-      const compressedFile = await compressImage(file, {
-        maxWidth: 1920,
-        maxHeight: 1080,
-        quality: 0.8
+      console.log('🗑️ Suppression intervention:', interventionId);
+
+      await deleteDoc(doc(db, 'interventions', interventionId));
+
+      console.log('✅ Intervention supprimée');
+      toast.success('Intervention supprimée');
+
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Erreur suppression intervention:', error);
+      toast.error('Erreur lors de la suppression', { description: error.message });
+      return { success: false, error: error.message };
+    }
+  };
+
+  // ===================================
+  // AJOUTER MESSAGE
+  // ===================================
+
+  const addMessage = async (interventionId, messageText, photos = []) => {
+    try {
+      console.log('💬 Ajout message intervention:', interventionId);
+
+      const intervention = interventions.find(i => i.id === interventionId);
+      if (!intervention) {
+        throw new Error('Intervention non trouvée');
+      }
+
+      // Upload photos si présentes
+      let photoUrls = [];
+      if (photos.length > 0) {
+        photoUrls = await Promise.all(
+          photos.map(async (photo) => {
+            const timestamp = Date.now();
+            const fileName = `${timestamp}_${photo.name}`;
+            const storageRef = ref(storage, `messages/${fileName}`);
+            
+            await uploadBytes(storageRef, photo);
+            const url = await getDownloadURL(storageRef);
+            
+            return {
+              url,
+              fileName: photo.name,
+              uploadedAt: new Date().toISOString()
+            };
+          })
+        );
+      }
+
+      const newMessage = {
+        id: `msg_${Date.now()}`,
+        text: messageText,
+        photos: photoUrls,
+        sentBy: user.uid,
+        sentByName: user.name || user.email,
+        sentAt: new Date().toISOString()
+      };
+
+      const updatedMessages = [...(intervention.messages || []), newMessage];
+
+      await updateDoc(doc(db, 'interventions', interventionId), {
+        messages: updatedMessages,
+        updatedAt: serverTimestamp()
       });
 
-      const storageRef = ref(
-        storage, 
-        `interventions/${interventionId}/${Date.now()}_${file.name}`
-      );
-      
-      const snapshot = await uploadBytes(storageRef, compressedFile);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      
-      return { success: true, url: downloadURL };
+      console.log('✅ Message ajouté');
+      toast.success('Message envoyé');
+
+      return { success: true };
     } catch (error) {
+      console.error('❌ Erreur ajout message:', error);
+      toast.error('Erreur lors de l\'envoi du message');
       return { success: false, error: error.message };
     }
-  }, []);
+  };
 
   return {
     interventions,
-    blockedRooms,
     loading,
+    error,
     stats,
     hasMore,
     loadMore,
-    updateMultipleInterventions,
-    uploadPhoto
+    addIntervention,
+    updateIntervention,
+    deleteIntervention,
+    addMessage
   };
 };
 
-// ✅ Helper : Compression d'image
-async function compressImage(file, options) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target.result;
-      
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-
-        if (width > options.maxWidth) {
-          height *= options.maxWidth / width;
-          width = options.maxWidth;
-        }
-
-        if (height > options.maxHeight) {
-          width *= options.maxHeight / height;
-          height = options.maxHeight;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
-        canvas.toBlob(
-          (blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })),
-          'image/jpeg',
-          options.quality
-        );
-      };
-      
-      img.onerror = reject;
-    };
-    
-    reader.onerror = reject;
-  });
-}
+export default useInterventions;

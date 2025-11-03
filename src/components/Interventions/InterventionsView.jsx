@@ -1,7 +1,8 @@
-// src/components/Interventions/InterventionsView.jsx - VERSION OPTIMISÉE PHASE 1
+// src/components/Interventions/InterventionsView.jsx - VERSION AVEC EXPORT
 import React, { useState, useMemo } from 'react';
 import { Search, Plus, MapPin, Camera, AlertCircle, Wrench, Filter, Eye, Home, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import ExportButton from '../common/ExportButton';
 
 const InterventionsView = ({ 
   interventions = [],
@@ -12,7 +13,6 @@ const InterventionsView = ({
   filterStatus = 'all',
   onFilterChange,
   dropdowns = {},
-  // ✨ NOUVEAU Phase 1: Props pour pagination
   hasMore = false,
   onLoadMore,
   isLoadingMore = false
@@ -20,7 +20,6 @@ const InterventionsView = ({
   const { user } = useAuth();
   const [showAllInterventions, setShowAllInterventions] = useState(false);
 
-  // ✅ Helper pour récupérer le label depuis les dropdowns
   const getRoomTypeLabel = (value) => {
     if (!value) return 'Non spécifié';
     const roomType = dropdowns.roomTypes?.find(rt => rt.value === value);
@@ -33,11 +32,9 @@ const InterventionsView = ({
     return priority?.name || value;
   };
 
-  // ✅ Fonction pour formater l'affichage principal (support multi-chambres)
   const getMainDisplay = (intervention) => {
     const roomTypeLabel = getRoomTypeLabel(intervention.roomType);
     
-    // Support nouveau format multi-chambres (rooms array)
     if (intervention.roomType === 'chambre' && intervention.rooms && intervention.rooms.length > 0) {
       if (intervention.rooms.length === 1) {
         return `${roomTypeLabel} ${intervention.rooms[0]}`;
@@ -46,7 +43,6 @@ const InterventionsView = ({
       }
     }
     
-    // Support format intermédiaire (locations array)
     if (intervention.roomType === 'chambre' && intervention.locations && intervention.locations.length > 0) {
       if (intervention.locations.length === 1) {
         return `${roomTypeLabel} ${intervention.locations[0]}`;
@@ -55,7 +51,6 @@ const InterventionsView = ({
       }
     }
     
-    // Support ancien format (location string) - rétrocompatibilité
     if (intervention.roomType === 'chambre' && intervention.location) {
       return `${roomTypeLabel} ${intervention.location}`;
     }
@@ -63,30 +58,28 @@ const InterventionsView = ({
     return roomTypeLabel;
   };
 
-  // ✨ FILTRAGE INTELLIGENT - Phase 1 optimisée
   const filteredInterventions = useMemo(() => {
     let result = interventions;
     if (searchTerm) {
-    result = result.filter(intervention => {
-      if (!intervention) return false;
-      
-      const locationText = intervention.locations 
-        ? intervention.locations.join(' ') 
-        : intervention.location || '';
-      
-      return locationText.toLowerCase().includes(searchTerm.toLowerCase()) ||
-             (intervention.missionSummary?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-             (intervention.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
-    });
-  }
-  
-  // Filtrage par statut
-  if (filterStatus !== 'all') {
-    result = result.filter(intervention => intervention.status === filterStatus);
-  }
-  
-  return result;
-}, [interventions, searchTerm, filterStatus]);
+      result = result.filter(intervention => {
+        if (!intervention) return false;
+        
+        const locationText = intervention.locations 
+          ? intervention.locations.join(' ') 
+          : intervention.location || '';
+        
+        return locationText.toLowerCase().includes(searchTerm.toLowerCase()) ||
+               (intervention.missionSummary?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+               (intervention.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+      });
+    }
+    
+    if (filterStatus !== 'all') {
+      result = result.filter(intervention => intervention.status === filterStatus);
+    }
+    
+    return result;
+  }, [interventions, searchTerm, filterStatus]);
 
   const statusCounts = {
     all: interventions.length,
@@ -128,7 +121,6 @@ const InterventionsView = ({
 
   return (
     <div className="space-y-6">
-      {/* ✨ Badge de filtrage technicien */}
       {user?.linkedTechnicianId && (
         <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
           <div className="flex items-center justify-between">
@@ -167,7 +159,7 @@ const InterventionsView = ({
         </div>
       )}
 
-      {/* En-tête avec recherche et filtres */}
+      {/* ✅ EN-TÊTE AVEC EXPORT */}
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
@@ -193,6 +185,23 @@ const InterventionsView = ({
             <option value="completed">Terminées ({statusCounts.completed})</option>
             <option value="cancelled">Annulées ({statusCounts.cancelled})</option>
           </select>
+
+          {/* ✅ BOUTON EXPORT */}
+          <ExportButton
+            data={filteredInterventions}
+            type="interventions"
+            filters={{
+              status: filterStatus !== 'all' ? filterStatus : null,
+              search: searchTerm || null,
+              technician: user?.linkedTechnicianId && !showAllInterventions ? user.name : null
+            }}
+            options={{
+              title: 'Liste des interventions',
+              includeStats: true,
+              includeHistory: false
+            }}
+            variant="secondary"
+          />
           
           {onCreateClick && (
             <button
@@ -262,7 +271,6 @@ const InterventionsView = ({
           </div>
         ))}
         
-        {/* ✨ NOUVEAU Phase 1: Bouton "Charger plus" avec pagination */}
         {hasMore && filteredInterventions.length > 0 && (
           <button
             onClick={onLoadMore}
@@ -288,7 +296,6 @@ const InterventionsView = ({
           </button>
         )}
         
-        {/* Message si aucune intervention */}
         {filteredInterventions.length === 0 && (
           <div className="text-center py-12">
             <MapPin size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-4" />
