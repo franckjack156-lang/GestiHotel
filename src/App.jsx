@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { ToastProvider, useToast } from './contexts/ToastContext';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+
+// ✨ NOUVEAU : Import du système de Toast optimisé
+import { ToastContainer, useToast } from './components/common/Toast';
+import { setGlobalToast } from './utils/toast';
 
 // Analytics Firebase uniquement
 import { setAnalyticsUser, analyticsEvents } from './config/firebase';
@@ -33,7 +36,6 @@ import RoomsManagementView from './components/Rooms/RoomsManagementView';
 // Modals
 import AuthScreen from './components/Auth/AuthScreen';
 import LoadingSpinner from './components/common/LoadingSpinner';
-import Toast from './components/common/Toast';
 import UnifiedAdminModal from './components/Admin/UnifiedAdminModal';
 import CreateInterventionModal from './components/Interventions/CreateInterventionModal';
 import InterventionDetailModal from './components/Interventions/InterventionDetailModal';
@@ -42,7 +44,7 @@ import CreateUserModal from './components/Users/CreateUserModal';
 import UserManagementModal from './components/Users/UserManagementModal';
 import UpdatePasswordModal from './components/Users/UpdatePasswordModal';
 
-// Firestore imports pour les interventions
+// Firestore imports
 import { 
   collection, 
   query, 
@@ -59,10 +61,19 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from './config/firebase';
 
+// ✨ Import du toast global
+import { toast } from './utils/toast';
+
 const AppContent = () => {
   const { user, loading: authLoading, logout } = useAuth();
-  const { toasts, removeToast } = useToast();
-  const { addToast } = useToast();
+  
+  // ✨ Initialiser le toast global
+  const toastInstance = useToast();
+  
+  useEffect(() => {
+    setGlobalToast(toastInstance);
+  }, [toastInstance]);
+  
   const { 
     currentView, 
     setCurrentView,
@@ -72,7 +83,7 @@ const AppContent = () => {
     setIsSettingsModalOpen
   } = useApp();
 
-  // ✅ Hooks de données - TOUJOURS appelés
+  // ✅ Hooks de données
   const {
     data,
     loading: dataLoading,
@@ -97,12 +108,10 @@ const AppContent = () => {
     updateUserPassword
   } = useUserManagement();
 
-  // ✅ État local pour les interventions
+  // État local
   const [interventions, setInterventions] = useState([]);
   const [blockedRooms, setBlockedRooms] = useState([]);
   const [interventionsLoading, setInterventionsLoading] = useState(true);
-
-  // État local - Modals
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [isUserManagementModalOpen, setIsUserManagementModalOpen] = useState(false);
@@ -115,9 +124,7 @@ const AppContent = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // ✅ TOUS LES useEffect DOIVENT ÊTRE ICI, DANS CET ORDRE, AVANT TOUTE LOGIQUE CONDITIONNELLE
-
-  // Effect 1: Charger les interventions
+  // useEffect - Interventions
   useEffect(() => {
     if (!user) {
       setInterventions([]);
@@ -126,13 +133,11 @@ const AppContent = () => {
       return;
     }
 
-    // Écouter les interventions
     let interventionsQuery = query(
       collection(db, 'interventions'),
       orderBy('createdAt', 'desc')
     );
 
-    // Filtrer par rôle
     if (user.role === 'technician') {
       interventionsQuery = query(
         collection(db, 'interventions'),
@@ -163,7 +168,6 @@ const AppContent = () => {
       }
     );
 
-    // ✅ CORRECTION : Écouter TOUTES les chambres bloquées (pas de filtre where)
     const blockedRoomsQuery = query(
       collection(db, 'blockedRooms'),
       orderBy('blockedAt', 'desc')
@@ -178,13 +182,10 @@ const AppContent = () => {
           blockedRoomsData.push({
             id: doc.id,
             ...data,
-            // ✅ Convertir les Timestamps Firebase en Date
             blockedAt: data.blockedAt?.toDate?.() || data.blockedAt,
             unblockedAt: data.unblockedAt?.toDate?.() || data.unblockedAt
           });
         });
-        
-        console.log('🔄 Firebase - Mise à jour blockedRooms:', blockedRoomsData);
         setBlockedRooms(blockedRoomsData);
       },
       (error) => {
@@ -198,7 +199,6 @@ const AppContent = () => {
     };
   }, [user]);
 
-  // Effect 2: Analytics user
   useEffect(() => {
     if (user) {
       setAnalyticsUser(user.uid, {
@@ -209,14 +209,12 @@ const AppContent = () => {
     }
   }, [user]);
 
-  // Effect 3: Analytics page view
   useEffect(() => {
     if (currentView) {
       analyticsEvents.pageView(currentView);
     }
   }, [currentView]);
 
-  // Effect 4: Synchroniser selectedIntervention avec les mises à jour
   useEffect(() => {
     if (selectedInterventionId && interventions.length > 0) {
       const updated = interventions.find(i => i.id === selectedInterventionId);
@@ -226,7 +224,6 @@ const AppContent = () => {
     }
   }, [interventions, selectedInterventionId]);
 
-  // ✅ MAINTENANT on peut faire les vérifications conditionnelles
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -242,10 +239,8 @@ const AppContent = () => {
     return <AuthScreen />;
   }
 
-  // Variable calculée (pas un hook)
   const isLoading = authLoading || dataLoading || interventionsLoading;
 
-  // ✅ Handlers interventions
   const handleInterventionClick = (intervention) => {
     setSelectedIntervention(intervention);
     setSelectedInterventionId(intervention.id);
@@ -258,7 +253,6 @@ const AppContent = () => {
 
   const handleCreateIntervention = async (interventionData, photos) => {
     try {
-      // Upload des photos
       const photoUrls = [];
       if (photos && photos.length > 0) {
         for (const photo of photos) {
@@ -269,7 +263,6 @@ const AppContent = () => {
         }
       }
 
-      // Créer l'intervention
       const interventionToAdd = {
         ...interventionData,
         photos: photoUrls,
@@ -291,28 +284,19 @@ const AppContent = () => {
 
       await addDoc(collection(db, 'interventions'), interventionToAdd);
 
-      addToast({
-        type: 'success',
-        title: 'Intervention créée',
-        message: 'L\'intervention a été créée avec succès'
-      });
+      toast.success('Intervention créée avec succès');
 
       setIsCreateInterventionModalOpen(false);
       return { success: true };
     } catch (error) {
       console.error('❌ Erreur création intervention:', error);
-      addToast({
-        type: 'error',
-        title: 'Erreur',
-        message: 'Erreur lors de la création de l\'intervention'
-      });
+      toast.error('Erreur lors de la création', { description: error.message });
       return { success: false, error: error.message };
     }
   };
 
   const handleUpdateIntervention = async (interventionId, updates, photos = []) => {
     try {
-      // Upload des nouvelles photos
       const photoUrls = [];
       if (photos && photos.length > 0) {
         for (const photo of photos) {
@@ -330,13 +314,11 @@ const AppContent = () => {
         updatedByName: user.name || user.email
       };
 
-      // Ajouter les nouvelles photos
       if (photoUrls.length > 0) {
         const intervention = interventions.find(i => i.id === interventionId);
         updateData.photos = [...(intervention?.photos || []), ...photoUrls];
       }
 
-      // Ajouter à l'historique si changement de statut
       if (updates.status) {
         const intervention = interventions.find(i => i.id === interventionId);
         const currentHistory = intervention?.history || [];
@@ -356,36 +338,21 @@ const AppContent = () => {
 
       await updateDoc(doc(db, 'interventions', interventionId), updateData);
 
-      addToast({
-        type: 'success',
-        title: 'Intervention mise à jour',
-        message: 'L\'intervention a été mise à jour avec succès'
-      });
+      toast.success('Intervention mise à jour');
 
       return { success: true };
     } catch (error) {
       console.error('❌ Erreur mise à jour intervention:', error);
-      addToast({
-        type: 'error',
-        title: 'Erreur',
-        message: 'Erreur lors de la mise à jour de l\'intervention'
-      });
+      toast.error('Erreur lors de la mise à jour', { description: error.message });
       return { success: false, error: error.message };
     }
   };
 
-  // ✅ CORRECTION COMPLÈTE : Simplifier handleToggleRoomBlock
   const handleToggleRoomBlock = async (room, reason) => {
     try {
-      console.log('🔧 App - handleToggleRoomBlock appelé:', { room, reason });
-      
-      // Chercher si la chambre est déjà bloquée (avec blocked === true)
       const existingBlock = blockedRooms.find(br => br.room === room && br.blocked === true);
 
       if (existingBlock) {
-        // ========== DÉBLOQUER ==========
-        console.log('🔓 Déblocage de la chambre:', room);
-        
         await updateDoc(doc(db, 'blockedRooms', existingBlock.id), {
           blocked: false,
           unblockedAt: serverTimestamp(),
@@ -393,15 +360,8 @@ const AppContent = () => {
           unblockedByName: user.name || user.email
         });
 
-        addToast({
-          type: 'success',
-          title: 'Chambre débloquée',
-          message: `La chambre ${room} a été débloquée`
-        });
+        toast.success(`Chambre ${room} débloquée`);
       } else {
-        // ========== BLOQUER ==========
-        console.log('🔒 Blocage de la chambre:', room);
-        
         const newBlock = {
           room,
           reason,
@@ -413,25 +373,14 @@ const AppContent = () => {
 
         await addDoc(collection(db, 'blockedRooms'), newBlock);
 
-        addToast({
-          type: 'success',
-          title: 'Chambre bloquée',
-          message: `La chambre ${room} a été bloquée`
-        });
+        toast.success(`Chambre ${room} bloquée`);
       }
 
-      // ✅ Retourner simplement success
-      // Firebase va mettre à jour blockedRooms via onSnapshot
-      console.log('✅ Opération réussie, Firebase va notifier le changement');
       return { success: true };
       
     } catch (error) {
       console.error('❌ Erreur blocage chambre:', error);
-      addToast({
-        type: 'error',
-        title: 'Erreur',
-        message: 'Erreur lors du blocage de la chambre'
-      });
+      toast.error('Erreur lors du blocage', { description: error.message });
       return { success: false, error: error.message };
     }
   };
@@ -440,7 +389,6 @@ const AppContent = () => {
     return await addItem('locations', locationData);
   };
 
-  // ✅ Handlers utilisateurs
   const handleCreateUser = () => {
     setIsCreateUserModalOpen(true);
   };
@@ -461,7 +409,6 @@ const AppContent = () => {
     setIsUpdatePasswordModalOpen(true);
   };
 
-  // ✅ Stats pour Analytics
   const analyticsStats = {
     totalInterventions: interventions.length,
     completedThisMonth: interventions.filter(i => 
@@ -475,7 +422,6 @@ const AppContent = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
-      {/* Overlay mobile */}
       {sidebarOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
@@ -483,7 +429,6 @@ const AppContent = () => {
         />
       )}
 
-      {/* Sidebar */}
       <div className={`
         fixed lg:static inset-y-0 left-0 z-50
         transform transition-transform duration-300 ease-in-out
@@ -502,7 +447,6 @@ const AppContent = () => {
         />
       </div>
 
-      {/* Contenu principal */}
       <div className="flex-1 flex flex-col min-w-0">
         <Header
           currentView={currentView}
@@ -515,7 +459,6 @@ const AppContent = () => {
 
         <main className="flex-1 overflow-y-auto">
           <div className="px-4 sm:px-6 lg:px-8 py-6">
-            {/* Dashboard */}
             {currentView === 'dashboard' && (
               <DashboardView
                 interventions={interventions}
@@ -524,7 +467,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Interventions */}
             {currentView === 'interventions' && (
               <InterventionsView
                 interventions={interventions}
@@ -538,7 +480,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Analytics Basique */}
             {currentView === 'analytics' && (
               <AnalyticsView
                 stats={analyticsStats}
@@ -546,7 +487,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Analytics Avancés */}
             {currentView === 'advanced-analytics' && (
               <AdvancedAnalytics
                 interventions={interventions}
@@ -554,7 +494,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Calendrier/Planning */}
             {currentView === 'planning' && (
               <CalendarView
                 interventions={interventions}
@@ -569,7 +508,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Chat */}
             {currentView === 'chat' && (
               <ChatView
                 user={user}
@@ -577,7 +515,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Recherche Avancée */}
             {currentView === 'search' && (
               <AdvancedSearchView
                 interventions={interventions}
@@ -587,7 +524,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Gestion utilisateurs */}
             {currentView === 'users' && user.role === 'superadmin' && (
               <UsersManagementView
                 users={users}
@@ -599,7 +535,6 @@ const AppContent = () => {
               />
             )}
 
-            {/* Gestion des données */}
             {currentView === 'data-management' && user.role === 'superadmin' && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -619,7 +554,6 @@ const AppContent = () => {
                   </button>
                 </div>
 
-                {/* Statistiques rapides */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Localisations</div>
@@ -667,6 +601,7 @@ const AppContent = () => {
             {currentView === 'excel-import' && user.role === 'superadmin' && (
               <ExcelImportView />
             )}
+            
             {currentView === 'rooms' && (
               <RoomsManagementView
                 blockedRooms={blockedRooms}
@@ -681,14 +616,11 @@ const AppContent = () => {
         </main>
       </div>
 
-      {/* Panel de Notifications */}
       <NotificationPanel
         isOpen={isNotificationPanelOpen}
         onClose={() => setIsNotificationPanelOpen(false)}
       />
 
-      {/* MODALS */}
-      
       {isCreateInterventionModalOpen && (
         <CreateInterventionModal
           isOpen={isCreateInterventionModalOpen}
@@ -756,20 +688,12 @@ const AppContent = () => {
                 updatedBy: user.uid
               });
 
-              addToast({
-                type: 'success',
-                title: 'Message envoyé',
-                message: 'Votre message a été ajouté'
-              });
+              toast.success('Message envoyé');
 
               return { success: true };
             } catch (error) {
               console.error('❌ Erreur envoi message:', error);
-              addToast({
-                type: 'error',
-                title: 'Erreur',
-                message: 'Erreur lors de l\'envoi du message'
-              });
+              toast.error('Erreur lors de l\'envoi', { description: error.message });
               return { success: false, error: error.message };
             }
           }}
@@ -800,20 +724,12 @@ const AppContent = () => {
                 updatedBy: user.uid
               });
 
-              addToast({
-                type: 'success',
-                title: 'Fourniture ajoutée',
-                message: `${supply.name} a été ajouté à la liste`
-              });
+              toast.success(`${supply.name} ajouté à la liste`);
 
               return { success: true };
             } catch (error) {
               console.error('❌ Erreur ajout fourniture:', error);
-              addToast({
-                type: 'error',
-                title: 'Erreur',
-                message: 'Erreur lors de l\'ajout de la fourniture'
-              });
+              toast.error('Erreur lors de l\'ajout', { description: error.message });
               return { success: false, error: error.message };
             }
           }}
@@ -837,20 +753,12 @@ const AppContent = () => {
                 updatedBy: user.uid
               });
 
-              addToast({
-                type: 'success',
-                title: 'Fourniture supprimée',
-                message: 'La fourniture a été retirée de la liste'
-              });
+              toast.success('Fourniture supprimée');
 
               return { success: true };
             } catch (error) {
               console.error('❌ Erreur suppression fourniture:', error);
-              addToast({
-                type: 'error',
-                title: 'Erreur',
-                message: 'Erreur lors de la suppression'
-              });
+              toast.error('Erreur lors de la suppression', { description: error.message });
               return { success: false, error: error.message };
             }
           }}
@@ -948,6 +856,8 @@ const AppContent = () => {
             setSelectedUser(user);
             setIsUpdatePasswordModalOpen(true);
           }}
+          adminData={data}
+          currentUser={user}
         />
       )}
 
@@ -970,33 +880,25 @@ const AppContent = () => {
         />
       )}
 
-      {/* Toasts */}
-      <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
-        {toasts.map(toast => (
-          <Toast
-            key={toast.id}
-            toast={toast}
-            onRemove={removeToast}
-          />
-        ))}
-      </div>
+      {/* ✨ NOUVEAU : Container de Toast optimisé */}
+      <ToastContainer 
+        toasts={toastInstance.toasts} 
+        onRemove={toastInstance.removeToast} 
+      />
     </div>
   );
 };
 
-// App principale avec NotificationProvider
 const App = () => {
   return (
     <ErrorBoundary>
-      <ToastProvider>
-        <AuthProvider>
-          <NotificationProvider>
-            <AppProvider>
-              <AppContent />
-            </AppProvider>
-          </NotificationProvider>
-        </AuthProvider>
-      </ToastProvider>
+      <AuthProvider>
+        <NotificationProvider>
+          <AppProvider>
+            <AppContent />
+          </AppProvider>
+        </NotificationProvider>
+      </AuthProvider>
     </ErrorBoundary>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Key, Eye, EyeOff, AlertCircle, User, Mail } from 'lucide-react';
-import { useToast } from '../../contexts/ToastContext';
+import { toast } from '../../utils/toast'; // ✨ NOUVEAU
 
 const UpdatePasswordModal = ({ 
   isOpen, 
@@ -14,23 +14,22 @@ const UpdatePasswordModal = ({
   });
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { addToast } = useToast();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!formData.newPassword || !formData.confirmPassword) {
-      addToast('Veuillez remplir tous les champs', 'error');
+      toast.error('Veuillez remplir tous les champs');
       return;
     }
 
     if (formData.newPassword.length < 6) {
-      addToast('Le mot de passe doit contenir au moins 6 caractères', 'error');
+      toast.error('Le mot de passe doit contenir au moins 6 caractères');
       return;
     }
 
     if (formData.newPassword !== formData.confirmPassword) {
-      addToast('Les mots de passe ne correspondent pas', 'error');
+      toast.error('Les mots de passe ne correspondent pas');
       return;
     }
 
@@ -38,7 +37,7 @@ const UpdatePasswordModal = ({
     
     const result = await onUpdatePassword(user.id, formData.newPassword);
     if (result.success) {
-      addToast('Mot de passe modifié avec succès', 'success');
+      toast.success('Mot de passe modifié avec succès');
       onClose();
       setFormData({
         newPassword: '',

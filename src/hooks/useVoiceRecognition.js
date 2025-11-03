@@ -1,15 +1,15 @@
+// src/hooks/useVoiceRecognition.js - VERSION PROPRE
 import { useState } from 'react';
-import { useToast } from '../contexts/ToastContext';
+import { toast } from '../utils/toast'; // ✨ NOUVEAU
 
 export const useVoiceRecognition = () => {
   const [isListening, setIsListening] = useState(false);
-  const { addToast } = useToast();
 
   const startListening = (onResult) => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
     if (!SpeechRecognition) {
-      addToast('Reconnaissance vocale non supportée sur ce navigateur', 'warning');
+      toast.warning('Reconnaissance vocale non supportée sur ce navigateur');
       return null;
     }
 
@@ -20,7 +20,7 @@ export const useVoiceRecognition = () => {
 
     recognition.onstart = () => {
       setIsListening(true);
-      addToast('Écoute en cours... Parlez maintenant', 'info');
+      toast.info('Écoute en cours... Parlez maintenant');
     };
 
     recognition.onresult = (event) => {
@@ -36,7 +36,7 @@ export const useVoiceRecognition = () => {
     };
 
     recognition.onerror = (event) => {
-      addToast('Erreur de reconnaissance vocale: ' + event.error, 'error');
+      toast.error('Erreur de reconnaissance vocale: ' + event.error);
       setIsListening(false);
     };
 
@@ -48,7 +48,7 @@ export const useVoiceRecognition = () => {
       recognition.start();
       return recognition;
     } catch (error) {
-      addToast('Impossible de démarrer la reconnaissance vocale', 'error');
+      toast.error('Impossible de démarrer la reconnaissance vocale');
       return null;
     }
   };

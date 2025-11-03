@@ -3,12 +3,11 @@ import React, { useState } from 'react';
 import { Database, Loader } from 'lucide-react';
 import { initializeFirestoreData } from '../../utils/initFirestore';
 import { useAuth } from '../../contexts/AuthContext';
-import { useToast } from '../../contexts/ToastContext';
+import { toast } from '../../utils/toast'; // ✨ NOUVEAU
 
 const InitializeDatabaseButton = () => {
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
-  const { addToast } = useToast();
 
   const handleInitialize = async () => {
     if (!window.confirm('⚠️ Voulez-vous initialiser la base de données avec des données de test ?\n\nCela ajoutera :\n- Types de locaux, missions, priorités\n- Techniciens de test\n- Fournisseurs de test\n- Équipements de test\n- 3 interventions d\'exemple')) {
@@ -21,10 +20,7 @@ const InitializeDatabaseButton = () => {
       const result = await initializeFirestoreData(user.uid, user.name);
       
       if (result.success) {
-        addToast({
-          type: 'success',
-          title: 'Base de données initialisée !',
-          message: `${result.count} éléments créés. Rechargez la page.`,
+        toast.success(`${result.count} éléments créés. Rechargez la page.`, {
           duration: 10000
         });
 
@@ -33,18 +29,10 @@ const InitializeDatabaseButton = () => {
           window.location.reload();
         }, 2000);
       } else {
-        addToast({
-          type: 'error',
-          title: 'Erreur',
-          message: result.error
-        });
+        toast.error(result.error);
       }
     } catch (error) {
-      addToast({
-        type: 'error',
-        title: 'Erreur',
-        message: 'Échec de l\'initialisation'
-      });
+      toast.error('Échec de l\'initialisation');
     } finally {
       setLoading(false);
     }

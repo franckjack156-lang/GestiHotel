@@ -1,5 +1,3 @@
-// src/hooks/useInterventions.js - VERSION OPTIMISÉE
-
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   collection, 
@@ -13,10 +11,12 @@ import {
   doc,
   serverTimestamp,
   startAfter,
-  getDocs
+  getDocs,
+  writeBatch
 } from 'firebase/firestore';
-import { db } from '../config/firebase.js';
-import { useToast } from '../contexts/ToastContext';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../config/firebase.js';
+import { toast } from '../utils/toast'; // ✨ NOUVEAU
 
 export const useInterventions = (user, options = {}) => {
   const {
@@ -30,7 +30,6 @@ export const useInterventions = (user, options = {}) => {
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [lastDoc, setLastDoc] = useState(null);
-  const { addToast } = useToast();
 
   // ✅ OPTIMISATION 1 : Pagination
   const loadMore = useCallback(async () => {
@@ -72,7 +71,7 @@ export const useInterventions = (user, options = {}) => {
       }
     } catch (error) {
       console.error('Erreur pagination:', error);
-      addToast({ type: 'error', message: 'Erreur chargement interventions' });
+      toast.error('Erreur chargement interventions');
     }
   }, [user, hasMore, lastDoc, pageSize]);
 
@@ -146,17 +145,14 @@ export const useInterventions = (user, options = {}) => {
 
       await batch.commit();
       
-      addToast({ 
-        type: 'success', 
-        message: `${updates.length} interventions mises à jour` 
-      });
+      toast.success(`${updates.length} interventions mises à jour`);
       
       return { success: true };
     } catch (error) {
       console.error('Erreur batch update:', error);
       return { success: false, error: error.message };
     }
-  }, [addToast]);
+  }, []);
 
   // ✅ OPTIMISATION 5 : Upload optimisé avec compression
   const uploadPhoto = useCallback(async (file, interventionId) => {

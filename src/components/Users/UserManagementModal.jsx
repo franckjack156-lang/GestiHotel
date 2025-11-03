@@ -1,8 +1,7 @@
-// src/components/Users/UserManagementModal.jsx - VERSION COMPLETE AVEC LIEN TECHNICIEN
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   User, RefreshCw, UserX, UserPlus, Key, Trash2, Calendar,
-  AlertCircle, Save, Wrench, Link2
+  AlertCircle, Save, Wrench, Link2, Shield
 } from 'lucide-react';
 import FormModal from '../common/FormModal';
 import {
@@ -13,8 +12,11 @@ import {
 } from '../common/FormFields';
 
 /**
- * Modal de gestion utilisateur - AVEC LIEN VERS TECHNICIEN
- * Solution optimale utilisant l'existant
+ * Modal de gestion utilisateur - VERSION COMPLÈTE
+ * ✨ Édition des informations
+ * ✨ Lien vers un technicien (pour les utilisateurs techniciens)
+ * ✨ Actions administratives (réinitialiser, désactiver, supprimer)
+ * ✨ Historique et statistiques
  */
 const UserManagementModal = ({ 
   isOpen, 
@@ -25,8 +27,11 @@ const UserManagementModal = ({
   onDeleteUser,
   onActivateUser,
   onUpdatePassword,
-  adminData = {} // ← IMPORTANT : Recevoir adminData en props
+  adminData = {}, // Pour le lien vers technicien
+  currentUser // Pour vérifier les permissions
 }) => {
+  const [showDangerZone, setShowDangerZone] = useState(false);
+
   if (!user) return null;
 
   const initialData = {
@@ -40,6 +45,7 @@ const UserManagementModal = ({
     linkedTechnicianId: user.linkedTechnicianId || ''
   };
 
+  // Validation
   const validate = (formData) => {
     const errors = {};
     
@@ -56,40 +62,60 @@ const UserManagementModal = ({
     return errors;
   };
 
+  // Soumission
   const handleSubmit = async (formData) => {
     return await onUpdateUser(user.id, formData);
   };
 
+  // Actions administratives
   const handleToggleActive = async () => {
     const action = initialData.active ? 'désactiver' : 'activer';
-    if (confirm(`Êtes-vous sûr de vouloir ${action} l'utilisateur ${user.name} ?`)) {
-      if (initialData.active) {
-        await onDeleteUser(user.id);
-      } else {
-        await onActivateUser(user.id);
-      }
+    
+    if (window.confirm(`Voulez-vous vraiment ${action} cet utilisateur ?`)) {
+      return await onActivateUser(user.id, !initialData.active);
     }
+    return { success: false };
   };
 
   const handleResetPassword = async () => {
-    if (confirm(`Réinitialiser le mot de passe de ${user.name} ?`)) {
-      const result = await onResetPassword(user.id);
-      if (result?.success && result?.tempPassword) {
-        alert(`Nouveau mot de passe temporaire : ${result.tempPassword}\n\nL'utilisateur devra le changer à sa première connexion.`);
-      }
+    if (window.confirm(`Réinitialiser le mot de passe de ${user.name} ?\nUn email sera envoyé à ${user.email}.`)) {
+      return await onResetPassword(user.id);
     }
+    return { success: false };
   };
 
-  // Liste des techniciens disponibles
-  const availableTechnicians = (adminData.technicians || [])
-    .filter(tech => tech.active !== false);
+  const handleDelete = async () => {
+    const confirmation = window.prompt(
+      `⚠️ ATTENTION : Cette action est irréversible !\n\nPour confirmer la suppression de ${user.name}, tapez "SUPPRIMER":`
+    );
+    
+    if (confirmation === 'SUPPRIMER') {
+      return await onDeleteUser(user.id);
+    }
+    return { success: false };
+  };
+
+  // Vérifier les permissions
+  const canEditRole = currentUser?.role === 'superadmin' || 
+    (currentUser?.role === 'manager' && user?.role !== 'superadmin');
+
+  const canDelete = currentUser?.role === 'superadmin' && 
+    user?.id !== currentUser?.id;
+
+  // Préparer les options de techniciens
+  const technicianOptions = (adminData?.technicians || [])
+    .filter(tech => tech.active !== false)
+    .map(tech => ({
+      value: tech.id,
+      label: tech.name
+    }));
 
   return (
     <FormModal
       isOpen={isOpen}
       onClose={onClose}
       title="Gérer l'utilisateur"
-      subtitle={`Modifier les informations de ${user.name}`}
+      subtitle={user.email}
       icon={User}
       size="lg"
       initialData={initialData}
@@ -98,46 +124,44 @@ const UserManagementModal = ({
       submitLabel="Enregistrer les modifications"
     >
       {({ formData, setFormData, errors, isSubmitting }) => (
-        <>
-          {/* Section Informations de base */}
+        <div className="space-y-6">
+          {/* Section Informations personnelles */}
           <FormSection
             title="Informations personnelles"
-            description="Modifier les coordonnées de l'utilisateur"
+            description="Coordonnées de l'utilisateur"
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <TextInput
                 id="name"
                 label="Nom complet"
                 required
+                icon={User}
                 value={formData.name}
                 onChange={(value) => setFormData({ ...formData, name: value })}
                 error={errors.name}
                 disabled={isSubmitting}
-                placeholder="Jean Dupont"
               />
 
               <TextInput
                 id="email"
-                label="Email"
                 type="email"
+                label="Email"
                 required
                 value={formData.email}
                 onChange={(value) => setFormData({ ...formData, email: value })}
                 error={errors.email}
                 disabled={isSubmitting}
-                placeholder="jean.dupont@hotel.com"
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <TextInput
                 id="phone"
-                label="Téléphone"
                 type="tel"
+                label="Téléphone"
                 value={formData.phone}
                 onChange={(value) => setFormData({ ...formData, phone: value })}
                 disabled={isSubmitting}
-                placeholder="+33 1 23 45 67 89"
               />
 
               <SelectInput
@@ -147,7 +171,7 @@ const UserManagementModal = ({
                 onChange={(value) => setFormData({ ...formData, department: value })}
                 disabled={isSubmitting}
                 options={[
-                  { value: '', label: 'Aucun' },
+                  { value: '', label: 'Aucun département' },
                   { value: 'reception', label: 'Réception' },
                   { value: 'maintenance', label: 'Maintenance' },
                   { value: 'menage', label: 'Ménage' },
@@ -158,190 +182,182 @@ const UserManagementModal = ({
             </div>
           </FormSection>
 
-          {/* ✨ NOUVELLE SECTION : Profil Technicien */}
+          {/* Section Accès et permissions */}
           <FormSection
-            title="Profil Technicien"
-            description="Associer cet utilisateur à un profil technicien de l'équipe"
+            title="Accès et permissions"
+            description="Rôle et droits d'accès"
           >
-            <SelectInput
-              id="linkedTechnicianId"
-              label="Technicien associé"
-              value={formData.linkedTechnicianId}
-              onChange={(value) => setFormData({ ...formData, linkedTechnicianId: value })}
-              disabled={isSubmitting}
-              options={[
-                { value: '', label: 'Aucun - Cet utilisateur n\'est pas un technicien' },
-                ...availableTechnicians.map(tech => ({
-                  value: tech.id,
-                  label: `${tech.name}${tech.specialty ? ` - ${tech.specialty}` : ''}`
-                }))
-              ]}
-            />
-            
-            <FormHelp>
-              Si cet utilisateur est un technicien, associez-le à son profil dans la base 
-              des techniciens. Cela permettra de :
-            </FormHelp>
-            
-            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 ml-4">
-              <li>• Lui assigner automatiquement les interventions</li>
-              <li>• Filtrer ses interventions à la connexion</li>
-              <li>• Synchroniser ses informations</li>
-            </ul>
-            
-            {formData.linkedTechnicianId && (
-              <div className="mt-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                <div className="flex items-start gap-3">
-                  <Link2 className="text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" size={20} />
-                  <div>
-                    <p className="font-medium text-green-900 dark:text-green-100 mb-1">
-                      Lien actif
-                    </p>
-                    <p className="text-sm text-green-700 dark:text-green-300">
-                      Cet utilisateur est lié au technicien{' '}
-                      <strong>
-                        {availableTechnicians.find(t => t.id === formData.linkedTechnicianId)?.name}
-                      </strong>
-                      {' '}et verra automatiquement ses interventions assignées lors de sa connexion.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {availableTechnicians.length === 0 && (
-              <div className="mt-3 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={20} />
-                  <div>
-                    <p className="font-medium text-amber-900 dark:text-amber-100 mb-1">
-                      Aucun technicien disponible
-                    </p>
-                    <p className="text-sm text-amber-700 dark:text-amber-300">
-                      Créez d'abord des profils techniciens dans "Données Admin" &gt; "Techniciens" 
-                      avant de pouvoir les lier aux utilisateurs.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </FormSection>
-
-          {/* Section Rôle et permissions */}
-          <FormSection title="Rôle et permissions">
             <SelectInput
               id="role"
               label="Rôle"
               required
+              icon={Shield}
               value={formData.role}
               onChange={(value) => setFormData({ ...formData, role: value })}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !canEditRole}
               options={[
-                { value: 'reception', label: 'Réception' },
-                { value: 'technician', label: 'Technicien' },
-                { value: 'manager', label: 'Manager' },
-                { value: 'superadmin', label: 'Super Admin' }
+                { value: 'reception', label: 'Réception', description: 'Créer des interventions' },
+                { value: 'technician', label: 'Technicien', description: 'Gérer ses interventions' },
+                { value: 'manager', label: 'Manager', description: 'Gérer toutes les interventions' },
+                { value: 'superadmin', label: 'Super Admin', description: 'Accès complet' }
               ]}
             />
-            <FormHelp>
-              Le rôle détermine les permissions d'accès dans l'application
-            </FormHelp>
+
+            {!canEditRole && (
+              <FormHelp>
+                ⚠️ Vous n'avez pas les permissions pour modifier le rôle de cet utilisateur.
+              </FormHelp>
+            )}
           </FormSection>
 
-          {/* Section Actions rapides */}
-          <FormSection title="Actions">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={handleResetPassword}
+          {/* ✨ NOUVEAU : Lien vers technicien */}
+          {formData.role === 'technician' && technicianOptions.length > 0 && (
+            <FormSection
+              title="Lien avec profil technique"
+              description="Associer cet utilisateur à un profil de technicien existant"
+            >
+              <SelectInput
+                id="linkedTechnicianId"
+                label="Technicien associé"
+                icon={Link2}
+                value={formData.linkedTechnicianId}
+                onChange={(value) => setFormData({ ...formData, linkedTechnicianId: value })}
                 disabled={isSubmitting}
-                className="px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RefreshCw size={16} />
-                Réinitialiser le mot de passe
-              </button>
-              
-              <button
-                type="button"
-                onClick={handleToggleActive}
-                disabled={isSubmitting}
-                className={`px-4 py-3 rounded-lg font-medium transition flex items-center justify-center gap-2 disabled:opacity-50 ${
-                  formData.active 
-                    ? 'bg-red-600 text-white hover:bg-red-700' 
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                {formData.active ? <UserX size={16} /> : <UserPlus size={16} />}
-                {formData.active ? 'Désactiver le compte' : 'Activer le compte'}
-              </button>
-            </div>
-          </FormSection>
+                options={[
+                  { value: '', label: 'Aucun lien' },
+                  ...technicianOptions
+                ]}
+              />
 
-          {/* Section Statut actuel */}
-          <FormSection title="Statut">
-            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Statut du compte
-                </p>
-                <p className={`font-semibold ${
+              <FormHelp>
+                💡 Permet d'associer ce compte utilisateur à un profil technique pour les interventions.
+                Les interventions assignées à ce technicien apparaîtront dans l'interface de cet utilisateur.
+              </FormHelp>
+            </FormSection>
+          )}
+
+          {/* Section Statistiques */}
+          <FormSection
+            title="Statistiques"
+            description="Informations sur l'activité"
+          >
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                  Statut
+                </div>
+                <div className={`font-semibold ${
                   formData.active 
                     ? 'text-green-600 dark:text-green-400' 
                     : 'text-red-600 dark:text-red-400'
                 }`}>
-                  {formData.active ? '✓ Compte actif' : '✗ Compte désactivé'}
-                </p>
-              </div>
-              
-              {formData.linkedTechnicianId && (
-                <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
-                  <Wrench size={20} />
-                  <span className="font-medium">Lié à un technicien</span>
+                  {formData.active ? '✓ Actif' : '✗ Inactif'}
                 </div>
-              )}
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                  Créé le
+                </div>
+                <div className="font-semibold text-gray-900 dark:text-white">
+                  {user.createdAt ? new Date(user.createdAt.toDate()).toLocaleDateString('fr-FR') : 'N/A'}
+                </div>
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                  Dernière connexion
+                </div>
+                <div className="font-semibold text-gray-900 dark:text-white">
+                  {user.lastLogin ? new Date(user.lastLogin.toDate()).toLocaleDateString('fr-FR') : 'Jamais'}
+                </div>
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                  ID
+                </div>
+                <div className="font-mono text-xs text-gray-900 dark:text-white truncate">
+                  {user.id}
+                </div>
+              </div>
             </div>
           </FormSection>
 
-          {/* Section Informations du compte */}
-          <FormSection title="Informations du compte">
-            <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-600 dark:text-gray-400 block mb-1">
-                    ID utilisateur
-                  </span>
-                  <code className="bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded text-xs font-mono">
-                    {user.id}
-                  </code>
-                </div>
-                <div>
-                  <span className="text-gray-600 dark:text-gray-400 block mb-1">
-                    Créé le
-                  </span>
-                  <span className="text-gray-800 dark:text-gray-200">
-                    {user.createdAt?.toLocaleDateString?.('fr-FR') || 'N/A'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-600 dark:text-gray-400 block mb-1">
-                    Dernière connexion
-                  </span>
-                  <span className="text-gray-800 dark:text-gray-200">
-                    {user.lastLogin?.toLocaleDateString?.('fr-FR') || 'Jamais'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-600 dark:text-gray-400 block mb-1">
-                    Dernière modification
-                  </span>
-                  <span className="text-gray-800 dark:text-gray-200">
-                    {user.updatedAt?.toLocaleDateString?.('fr-FR') || 'N/A'}
-                  </span>
-                </div>
-              </div>
+          {/* Actions administratives */}
+          <FormSection
+            title="Actions administratives"
+            description="Gestion du compte utilisateur"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleToggleActive}
+                disabled={isSubmitting || user.id === currentUser?.id}
+                className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                  formData.active
+                    ? 'border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20'
+                    : 'border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20'
+                }`}
+              >
+                {formData.active ? <UserX size={18} /> : <UserPlus size={18} />}
+                {formData.active ? 'Désactiver' : 'Activer'} le compte
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetPassword}
+                disabled={isSubmitting}
+                className="flex items-center justify-center gap-2 px-4 py-3 border border-blue-300 text-blue-700 rounded-lg font-medium hover:bg-blue-50 transition dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw size={18} />
+                Réinitialiser le mot de passe
+              </button>
             </div>
+
+            {user.id === currentUser?.id && (
+              <FormHelp>
+                ⚠️ Vous ne pouvez pas désactiver votre propre compte.
+              </FormHelp>
+            )}
           </FormSection>
-        </>
+
+          {/* Zone de danger */}
+          {canDelete && (
+            <div className="border border-red-200 dark:border-red-800 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowDangerZone(!showDangerZone)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition"
+              >
+                <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-medium">
+                  <AlertCircle size={18} />
+                  Zone de danger
+                </div>
+                <span className="text-red-600 dark:text-red-400">
+                  {showDangerZone ? '▼' : '▶'}
+                </span>
+              </button>
+
+              {showDangerZone && (
+                <div className="p-4 bg-red-50/50 dark:bg-red-900/10">
+                  <p className="text-sm text-red-700 dark:text-red-400 mb-3">
+                    ⚠️ <strong>Attention :</strong> Cette action est irréversible et supprimera définitivement toutes les données de l'utilisateur.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={isSubmitting}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 size={18} />
+                    Supprimer définitivement l'utilisateur
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </FormModal>
   );
