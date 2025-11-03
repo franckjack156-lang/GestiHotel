@@ -202,16 +202,16 @@ export const SelectInput = ({
         }`}
         {...props}
       >
-        {placeholder && <option value="">{placeholder}</option>}
-        {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-            disabled={option.disabled}
-          >
-            {option.label}
-          </option>
-        ))}
+        {placeholder && <option key="placeholder" value="">{placeholder}</option>}
+          {options.map((option, index) => (
+            <option
+              key={option.value || `option-${index}`}
+              value={option.value}
+              disabled={option.disabled}
+            >
+              {option.label}
+            </option>
+          ))}
       </select>
       <FormError error={error} />
     </div>

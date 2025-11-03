@@ -2,158 +2,67 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ========== HELPER FUNCTIONS ==========
-    
+    // Fonction helper pour vérifier l'authentification
     function isAuthenticated() {
       return request.auth != null;
     }
     
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-    
-    function isSuperAdmin() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin';
-    }
-    
-    function isManager() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['manager', 'superadmin'];
-    }
-    
-    function isActive() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
-    }
-    
-    function isTechnician() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'technician';
-    }
-    
-    function isReception() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'reception';
-    }
-    
-    // ========== USERS COLLECTION ==========
-    
+    // USERS - Tous les utilisateurs authentifiés peuvent lire
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isSuperAdmin();
-      allow update: if isAuthenticated() && (
-        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'active'])) ||
-        isSuperAdmin()
-      );
-      allow delete: if isSuperAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (request.auth.uid == userId || request.auth != null);
+      allow delete: if isAuthenticated();
     }
     
-    // ========== INTERVENTIONS COLLECTION ==========
-    
+    // INTERVENTIONS - Accès complet pour authentifiés
     match /interventions/{interventionId} {
-      allow read: if isAuthenticated() && isActive();
-      
-      allow create: if isAuthenticated() && isActive() && (
-        isReception() || isManager() || isSuperAdmin()
-      );
-      
-      allow update: if isAuthenticated() && isActive() && (
-        (isTechnician() && resource.data.assignedTo == request.auth.uid) ||
-        isManager() ||
-        isSuperAdmin()
-      );
-      
-      allow delete: if isManager() || isSuperAdmin();
+      allow read, write: if isAuthenticated();
     }
     
-    // ========== BLOCKED ROOMS COLLECTION ==========
-    
+    // BLOCKED ROOMS - Accès complet pour authentifiés
     match /blockedRooms/{roomId} {
-      allow read: if isAuthenticated() && isActive();
-      allow write: if isManager() || isSuperAdmin();
+      allow read, write: if isAuthenticated();
     }
     
-    // ========== ✅ NOUVELLE COLLECTION: DROPDOWN OPTIONS ==========
-    // Toutes les listes déroulantes (types, priorités, localisations, etc.)
+    // DROPDOWNS - Accès complet pour authentifiés
+    match /dropdowns/{category} {
+      allow read, write: if isAuthenticated();
+    }
     
+    // DROPDOWN OPTIONS - Accès complet pour authentifiés
     match /dropdownOptions/{optionId} {
-      // Lecture: Tous les utilisateurs authentifiés
-      allow read: if isAuthenticated();
-      
-      // Création: Manager et SuperAdmin uniquement
-      allow create: if isManager() || isSuperAdmin() 
-        && request.resource.data.keys().hasAll(['name', 'category', 'active'])
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.category in [
-          'roomTypes', 'locations', 'missionTypes', 
-          'creators', 'interventionTypes', 'priorities', 'departments'
-        ]
-        && request.resource.data.active is bool;
-      
-      // Mise à jour: Manager et SuperAdmin uniquement
-      allow update: if isManager() || isSuperAdmin();
-      
-      // Suppression: SuperAdmin uniquement (ou Manager selon votre besoin)
-      allow delete: if isSuperAdmin();
+      allow read, write: if isAuthenticated();
     }
     
-    // ========== ✅ NOUVELLE COLLECTION: ADMIN DATA ==========
-    // Données administrateur (techniciens, fournisseurs, équipements)
+    // ADMIN OPTIONS - Accès complet pour authentifiés
+    match /adminOptions/{category} {
+      allow read, write: if isAuthenticated();
+    }
     
+    // ADMIN DATA - Accès complet pour authentifiés
     match /adminData/{dataId} {
-      // Lecture: Tous les utilisateurs authentifiés
-      allow read: if isAuthenticated();
-      
-      // Création: Manager et SuperAdmin uniquement
-      allow create: if isManager() || isSuperAdmin()
-        && request.resource.data.keys().hasAll(['name', 'type', 'active'])
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.type in ['technicians', 'suppliers', 'equipment']
-        && request.resource.data.active is bool;
-      
-      // Mise à jour: Manager et SuperAdmin uniquement
-      allow update: if isManager() || isSuperAdmin();
-      
-      // Suppression: SuperAdmin uniquement
-      allow delete: if isSuperAdmin();
+      allow read, write: if isAuthenticated();
     }
     
-    // ========== TECHNICIANS COLLECTION (LEGACY - Optionnel si migration) ==========
-    
-    match /technicians/{techId} {
-      allow read: if isAuthenticated();
-      allow write: if isManager() || isSuperAdmin();
+    // SETTINGS - Accès complet pour authentifiés
+    match /settings/{settingId} {
+      allow read, write: if isAuthenticated();
     }
     
-    // ========== SUPPLIERS COLLECTION (LEGACY - Optionnel si migration) ==========
-    
-    match /suppliers/{supplierId} {
-      allow read: if isAuthenticated();
-      allow write: if isManager() || isSuperAdmin();
-    }
-    
-    // ========== EQUIPMENT COLLECTION (LEGACY - Optionnel si migration) ==========
-    
-    match /equipment/{equipmentId} {
-      allow read: if isAuthenticated();
-      allow write: if isManager() || isSuperAdmin();
-    }
-    
-    // ========== ANALYTICS COLLECTION ==========
-    
+    // ANALYTICS - Accès complet pour authentifiés
     match /analytics/{docId} {
-      allow read: if isManager() || isSuperAdmin();
-      allow write: if false; // Système uniquement (Cloud Functions)
+      allow read, write: if isAuthenticated();
     }
     
-    // ========== AUDIT LOGS COLLECTION ==========
-    
+    // AUDIT LOGS - Accès complet pour authentifiés
     match /auditLogs/{logId} {
-      allow read: if isSuperAdmin();
-      allow write: if false; // Système uniquement (Cloud Functions)
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Toutes les autres collections possibles
+    match /{document=**} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

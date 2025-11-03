@@ -47,11 +47,11 @@ const InterventionsView = ({
     // Filtrage automatique technicien
     if (user?.linkedTechnicianId && !showAllInterventions) {
       result = result.filter(intervention => {
-        // Vérifier si assignedTo contient l'ID du technicien lié
-        if (Array.isArray(intervention.assignedTo)) {
-          return intervention.assignedTo.includes(user.linkedTechnicianId);
-        }
-        return intervention.assignedTo === user.linkedTechnicianId;
+        // Support du nouveau format locations[]
+        const locationText = intervention.locations 
+          ? intervention.locations.join(' ') 
+          : '';
+        return locationText.toLowerCase().includes(searchTerm.toLowerCase());
       });
     }
 

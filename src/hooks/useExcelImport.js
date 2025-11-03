@@ -1,4 +1,4 @@
-// src/hooks/useExcelImport.js - VERSION CORRIGÉE avec comparaison insensible à la casse
+
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { 
@@ -9,7 +9,8 @@ import {
   doc,
   serverTimestamp,
   deleteDoc,
-  query
+  query,
+  where
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useToast } from '../contexts/ToastContext';
@@ -21,7 +22,91 @@ export const useExcelImport = (user) => {
   const { addToast } = useToast();
 
   /**
-   * Lire un fichier Excel (.xlsx ou .xls)
+   * ✅ CORRECTION MAJEURE : Parser de dates Excel robuste
+   * Gère tous les formats : Date objects, DD/MM/YYYY, ISO, serial numbers Excel
+   */
+  const parseExcelDate = (dateValue) => {
+    // Si c'est déjà un objet Date valide
+    if (dateValue instanceof Date) {
+      if (!isNaN(dateValue.getTime())) {
+        return dateValue;
+      }
+    }
+    
+    // Si c'est un string
+    if (typeof dateValue === 'string') {
+      const trimmed = dateValue.trim();
+      
+      // Format DD/MM/YYYY ou D/M/YYYY
+      if (trimmed.includes('/')) {
+        const parts = trimmed.split('/');
+        if (parts.length === 3) {
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10);
+          const year = parseInt(parts[2], 10);
+          
+          // Validation de base
+          if (year >= 1900 && year <= 2100 && 
+              month >= 1 && month <= 12 && 
+              day >= 1 && day <= 31) {
+            const date = new Date(year, month - 1, day);
+            
+            // Vérification supplémentaire que la date est valide
+            if (date.getMonth() === month - 1 && date.getDate() === day) {
+              return date;
+            }
+          }
+        }
+      }
+      
+      // Format ISO (YYYY-MM-DD) ou autres formats standards
+      if (trimmed.includes('-')) {
+        const parsed = new Date(trimmed);
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+      
+      // Si c'est un string qui ressemble à un nombre
+      const asNumber = parseFloat(trimmed);
+      if (!isNaN(asNumber)) {
+        // Continuer avec le traitement des nombres ci-dessous
+        dateValue = asNumber;
+      }
+    }
+    
+    // Si c'est un nombre (serial date Excel)
+    if (typeof dateValue === 'number' && !isNaN(dateValue)) {
+      // Excel stocke les dates comme nombre de jours depuis le 1er janvier 1900
+      // ATTENTION : Excel a un bug historique - il considère 1900 comme bissextile
+      
+      // Vérifier que le nombre est dans une plage raisonnable
+      // 1 = 01/01/1900, ~45000 = année 2023
+      if (dateValue >= 1 && dateValue <= 100000) {
+        const excelEpoch = new Date(1899, 11, 30); // 30 décembre 1899
+        const msPerDay = 24 * 60 * 60 * 1000;
+        
+        // Correction pour le bug d'Excel avec 1900 (année bissextile fictive)
+        // Si la date serial est > 59 (après le 28 février 1900), on retire 1 jour
+        const adjustedSerial = dateValue > 59 ? dateValue - 1 : dateValue;
+        const resultDate = new Date(excelEpoch.getTime() + adjustedSerial * msPerDay);
+        
+        // Vérifier que la date résultante est valide
+        if (!isNaN(resultDate.getTime()) && 
+            resultDate.getFullYear() >= 1900 && 
+            resultDate.getFullYear() <= 2100) {
+          return resultDate;
+        }
+      }
+    }
+    
+    // Fallback : date actuelle avec un warning
+    console.warn('⚠️ Date invalide détectée, utilisation de la date actuelle:', dateValue);
+    return new Date();
+  };
+
+  /**
+   * Lire un fichier Excel (.xlsx ou .xls) avec support des dates
    */
   const readExcelFile = async (file) => {
     return new Promise((resolve, reject) => {
@@ -30,33 +115,96 @@ export const useExcelImport = (user) => {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
           
-          // Prendre la première feuille
+          // ✅ CORRECTION : Activer cellDates pour parser les dates correctement
+          const workbook = XLSX.read(data, { 
+            type: 'array',
+            cellDates: true,  // ⭐ IMPORTANT : Parse les dates en objets Date
+            dateNF: 'dd/mm/yyyy'
+          });
+          
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           
-          // Convertir en JSON
+          // Convertir en JSON avec raw: false pour garder le formatage
           const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-            raw: false, // Garder les dates en format texte
-            dateNF: 'dd/mm/yyyy' // Format de date français
+            raw: false,  // Convertir en string sauf pour les dates
+            dateNF: 'dd/mm/yyyy',
+            cellDates: true  // Important pour les dates
           });
+          
+          console.log('📖 Fichier Excel lu avec succès:', jsonData.length, 'lignes');
           
           resolve(jsonData);
         } catch (error) {
+          console.error('❌ Erreur lecture Excel:', error);
           reject(error);
         }
       };
       
-      reader.onerror = (error) => reject(error);
+      reader.onerror = (error) => {
+        console.error('❌ Erreur FileReader:', error);
+        reject(error);
+      };
+      
       reader.readAsArrayBuffer(file);
     });
   };
 
   /**
-   * Mapper les données Excel vers le format Firestore
+   * ✅ CORRECTION MAJEURE : Préserver le créateur original
+   * Chercher si le créateur existe dans la base, sinon créer un identifiant externe
    */
-  const mapExcelToFirestore = (row, user) => {
+  const findOrCreateCreator = async (creatorName) => {
+    if (!creatorName || creatorName.trim() === '' || creatorName === 'Import Excel') {
+      // Pas de créateur spécifié, utiliser l'importateur
+      return {
+        creatorId: user?.uid || 'import',
+        creatorName: user?.name || 'Import Excel'
+      };
+    }
+
+    const normalizedName = creatorName.trim();
+
+    try {
+      // Chercher si un utilisateur avec ce nom existe
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('name', '==', normalizedName));
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        // Utilisateur trouvé dans la base
+        const userDoc = snapshot.docs[0];
+        return {
+          creatorId: userDoc.id,
+          creatorName: userDoc.data().name
+        };
+      }
+      
+      // Utilisateur non trouvé, créer un ID externe pour traçabilité
+      const externalId = `external_${normalizedName.toLowerCase().replace(/\s+/g, '_')}`;
+      
+      console.log(`ℹ️ Créateur externe détecté: ${normalizedName} (ID: ${externalId})`);
+      
+      return {
+        creatorId: externalId,
+        creatorName: normalizedName
+      };
+      
+    } catch (error) {
+      console.error('❌ Erreur recherche créateur:', error);
+      // En cas d'erreur, utiliser l'importateur
+      return {
+        creatorId: user?.uid || 'import',
+        creatorName: user?.name || 'Import Excel'
+      };
+    }
+  };
+
+  /**
+   * ✅ CORRECTION MAJEURE : Mapper les données avec créateur original préservé
+   */
+  const mapExcelToFirestore = async (row, user) => {
     // Mapping des statuts
     const statusMap = {
       'À faire': 'todo',
@@ -85,34 +233,16 @@ export const useExcelImport = (user) => {
     const status = statusMap[row.Statut] || statusMap[row.statut] || 'todo';
     const priority = priorityMap[row.Priorité] || priorityMap[row.priorite] || 'normal';
 
-    // Parser la date (plusieurs formats possibles)
-    let parsedDate = new Date();
-    const dateStr = row.Date || row.date || '';
-    
-    if (dateStr) {
-      // Format JJ/MM/AAAA
-      if (dateStr.includes('/')) {
-        const [day, month, year] = dateStr.split('/');
-        parsedDate = new Date(year, month - 1, day);
-      }
-      // Format AAAA-MM-JJ
-      else if (dateStr.includes('-')) {
-        parsedDate = new Date(dateStr);
-      }
-      // Timestamp Excel (nombre de jours depuis 1900)
-      else if (!isNaN(dateStr)) {
-        const excelEpoch = new Date(1899, 11, 30);
-        parsedDate = new Date(excelEpoch.getTime() + parseFloat(dateStr) * 86400000);
-      }
-    }
+    // ✅ CORRECTION 1 : Utiliser le parser de dates robuste
+    const dateValue = row.Date || row.date;
+    const parsedDate = parseExcelDate(dateValue);
 
-    // Validation de la date
-    if (isNaN(parsedDate.getTime())) {
-      parsedDate = new Date();
-    }
+    // ✅ CORRECTION 2 : Trouver ou créer le créateur original
+    const originalCreatorName = (row.Demandeur || row.demandeur || '').trim();
+    const creatorInfo = await findOrCreateCreator(originalCreatorName);
 
     return {
-      // Informations de base - ✅ CORRECTION : Garder la casse originale, juste trim
+      // Informations de base
       location: (row.Localisation || row.localisation || '').trim(),
       roomType: (row['Type Local'] || row['type_local'] || 'chambre').toLowerCase().trim(),
       
@@ -132,17 +262,21 @@ export const useExcelImport = (user) => {
       priority: priority,
       status: status,
       
-      // Assignation - ✅ CORRECTION : Garder la casse originale pour les noms propres
+      // Assignation
       assignedToName: (row.Intervenant || row.intervenant || '').trim(),
-      assignedTo: '', // À remplir avec l'ID du technicien si trouvé
+      assignedTo: '', // À remplir avec l'ID du technicien
       techComment: row['Commentaire Intervenant'] || row['commentaire_intervenant'] || '',
       
-      // Créateur - ✅ CORRECTION : Garder la casse originale
-      creatorName: (row.Demandeur || row.demandeur || 'Import Excel').trim(),
-      createdBy: user?.uid || 'import',
-      createdByName: user?.name || 'Import Excel',
+      // ✅ CRÉATEUR ORIGINAL (pas l'importateur)
+      creator: creatorInfo.creatorId,
+      creatorName: creatorInfo.creatorName,
       
-      // Dates
+      // ✅ TRAÇABILITÉ DE L'IMPORT (qui a importé, quand)
+      importedBy: user?.uid,
+      importedByName: user?.name,
+      importedAt: serverTimestamp(),
+      
+      // ✅ DATE CORRECTE
       createdAt: parsedDate,
       updatedAt: serverTimestamp(),
       
@@ -153,13 +287,15 @@ export const useExcelImport = (user) => {
       photos: [],
       messages: [],
       suppliesNeeded: [],
+      
+      // ✅ HISTORIQUE avec le bon créateur
       history: [{
         id: `history_${Date.now()}_${Math.random()}`,
         status: status,
         date: parsedDate.toISOString(),
-        by: user?.uid || 'import',
-        byName: user?.name || 'Import Excel',
-        comment: 'Intervention importée depuis Excel'
+        by: creatorInfo.creatorId,  // ⭐ Créateur original
+        byName: creatorInfo.creatorName,  // ⭐ Nom original
+        comment: `Intervention créée par ${creatorInfo.creatorName} (importée depuis Excel par ${user?.name || 'Import'})`
       }]
     };
   };
@@ -170,14 +306,14 @@ export const useExcelImport = (user) => {
   const validateRow = (row, rowNumber) => {
     const errors = [];
 
-    // ✅ Champs obligatoires uniquement
+    // Champs obligatoires
     const date = row.Date || row.date || '';
     const demandeur = row.Demandeur || row.demandeur || '';
     const typeLocal = row['Type Local'] || row['type_local'] || row['Type de Local'] || '';
     const intervenant = row.Intervenant || row.intervenant || '';
     const statut = row.Statut || row.statut || '';
 
-    if (!date || date.trim() === '') {
+    if (!date || date.toString().trim() === '') {
       errors.push(`Ligne ${rowNumber}: La date est obligatoire`);
     }
 
@@ -201,87 +337,68 @@ export const useExcelImport = (user) => {
   };
 
   /**
-   * ✅ CORRECTION MAJEURE : Récupérer les dropdowns existants avec normalisation
-   * Lit depuis dropdownOptions ET adminData selon le type de données
+   * Récupérer les dropdowns existants avec normalisation
    */
   const getExistingDropdowns = async () => {
     try {
       const dropdowns = {
-        assignedToName: [],    // Techniciens depuis adminData
-        location: [],          // Localisations depuis dropdownOptions
-        roomType: [],          // Types de local depuis dropdownOptions
-        missionType: [],       // Types de mission depuis dropdownOptions
-        interventionType: [],  // Types d'intervention depuis dropdownOptions
-        creatorName: []        // Créateurs depuis dropdownOptions
+        assignedToName: [],
+        location: [],
+        roomType: [],
+        missionType: [],
+        interventionType: [],
+        creatorName: []
       };
 
-      // ✅ 1. LIRE DEPUIS adminData (techniciens uniquement)
+      // Lire depuis adminData (techniciens)
       const adminDataSnapshot = await getDocs(collection(db, 'adminData'));
       
       adminDataSnapshot.forEach(doc => {
         const data = doc.data();
         
-        // Techniciens
         if (data.type === 'technicians' && data.active !== false && data.name) {
           dropdowns.assignedToName.push(data.name.toLowerCase().trim());
         }
       });
 
-      // ✅ 2. LIRE DEPUIS dropdownOptions (localisations, types, créateurs)
+      // Lire depuis dropdownOptions
       const dropdownOptionsSnapshot = await getDocs(collection(db, 'dropdownOptions'));
       
       dropdownOptionsSnapshot.forEach(doc => {
         const data = doc.data();
         
-        // Localisations
         if (data.category === 'locations' && data.active !== false && data.name) {
           dropdowns.location.push(data.name.toLowerCase().trim());
         }
-        // Types de local
         else if (data.category === 'roomTypes' && data.active !== false) {
-          if (data.value) {
-            dropdowns.roomType.push(data.value.toLowerCase().trim());
-          }
-          if (data.name) {
-            dropdowns.roomType.push(data.name.toLowerCase().trim());
-          }
+          if (data.value) dropdowns.roomType.push(data.value.toLowerCase().trim());
+          if (data.name) dropdowns.roomType.push(data.name.toLowerCase().trim());
         }
-        // Types de mission
         else if (data.category === 'missionTypes' && data.active !== false) {
-          if (data.value) {
-            dropdowns.missionType.push(data.value.toLowerCase().trim());
-          }
-          if (data.name) {
-            dropdowns.missionType.push(data.name.toLowerCase().trim());
-          }
+          if (data.value) dropdowns.missionType.push(data.value.toLowerCase().trim());
+          if (data.name) dropdowns.missionType.push(data.name.toLowerCase().trim());
         }
-        // Types d'intervention
         else if (data.category === 'interventionTypes' && data.active !== false) {
-          if (data.value) {
-            dropdowns.interventionType.push(data.value.toLowerCase().trim());
-          }
-          if (data.name) {
-            dropdowns.interventionType.push(data.name.toLowerCase().trim());
-          }
+          if (data.value) dropdowns.interventionType.push(data.value.toLowerCase().trim());
+          if (data.name) dropdowns.interventionType.push(data.name.toLowerCase().trim());
         }
-        // Créateurs
         else if (data.category === 'creators' && data.active !== false && data.name) {
           dropdowns.creatorName.push(data.name.toLowerCase().trim());
         }
       });
 
-      // ✅ Supprimer les doublons avec Set
+      // Supprimer les doublons
       Object.keys(dropdowns).forEach(key => {
         dropdowns[key] = [...new Set(dropdowns[key])];
       });
 
-      console.log('📊 Dropdowns chargés depuis DEUX collections:', {
-        assignedToName: `${dropdowns.assignedToName.length} (adminData)`,
-        location: `${dropdowns.location.length} (dropdownOptions)`,
-        roomType: `${dropdowns.roomType.length} (dropdownOptions)`,
-        missionType: `${dropdowns.missionType.length} (dropdownOptions)`,
-        interventionType: `${dropdowns.interventionType.length} (dropdownOptions)`,
-        creatorName: `${dropdowns.creatorName.length} (dropdownOptions)`
+      console.log('📊 Dropdowns chargés:', {
+        assignedToName: `${dropdowns.assignedToName.length} techniciens`,
+        location: `${dropdowns.location.length} localisations`,
+        roomType: `${dropdowns.roomType.length} types de local`,
+        missionType: `${dropdowns.missionType.length} types de mission`,
+        interventionType: `${dropdowns.interventionType.length} types d'intervention`,
+        creatorName: `${dropdowns.creatorName.length} créateurs`
       });
 
       return dropdowns;
@@ -300,38 +417,35 @@ export const useExcelImport = (user) => {
 
   /**
    * Analyser les données sans les importer
-   * Retourne les données parsées + les nouvelles valeurs détectées
    */
   const analyzeImportData = async (file) => {
     try {
-      // Lire le fichier
       console.log('📖 Analyse du fichier Excel...');
       const rawData = await readExcelFile(file);
 
       console.log('📊 Données brutes lues:', rawData.length, 'lignes');
       
-      // ✅ DEBUG : Afficher la première ligne pour voir les colonnes
       if (rawData.length > 0) {
         console.log('🔍 Colonnes détectées:', Object.keys(rawData[0]));
-        console.log('🔍 Première ligne:', rawData[0]);
+        console.log('🔍 Première ligne (aperçu):', {
+          Date: rawData[0].Date || rawData[0].date,
+          Demandeur: rawData[0].Demandeur || rawData[0].demandeur,
+          Localisation: rawData[0].Localisation || rawData[0].localisation
+        });
       }
 
       if (rawData.length === 0) {
         throw new Error('Aucune donnée à analyser');
       }
 
-      // Récupérer les dropdowns existants
       const existingDropdowns = await getExistingDropdowns();
-
-      // Parser les données (mais ne pas les importer)
       const parsedData = [];
       const errors = [];
 
       for (let i = 0; i < rawData.length; i++) {
         const row = rawData[i];
-        const rowNumber = i + 2; // +2 car ligne 1 = headers
+        const rowNumber = i + 2;
 
-        // Valider la ligne
         const rowErrors = validateRow(row, rowNumber);
         if (rowErrors.length > 0) {
           console.warn(`⚠️ Erreurs ligne ${rowNumber}:`, rowErrors);
@@ -339,20 +453,14 @@ export const useExcelImport = (user) => {
           continue;
         }
 
-        // Mapper les données
-        const mapped = mapExcelToFirestore(row, user);
+        // ✅ CORRECTION : mapExcelToFirestore est maintenant async
+        const mapped = await mapExcelToFirestore(row, user);
         if (mapped) {
           parsedData.push(mapped);
-          console.log(`✅ Ligne ${rowNumber} mappée:`, {
-            location: mapped.location,
-            assignedToName: mapped.assignedToName,
-            roomType: mapped.roomType,
-            status: mapped.status
-          });
         }
       }
 
-      console.log(`📦 Résultat analyse: ${parsedData.length} lignes valides, ${errors.length} erreurs`);
+      console.log(`📦 Analyse terminée: ${parsedData.length} lignes valides, ${errors.length} erreurs`);
 
       return {
         success: true,
@@ -380,7 +488,6 @@ export const useExcelImport = (user) => {
     }
 
     try {
-      // Chercher le technicien dans adminData (comparaison insensible à la casse)
       const techniciansRef = collection(db, 'adminData');
       const snapshot = await getDocs(techniciansRef);
       
@@ -396,7 +503,6 @@ export const useExcelImport = (user) => {
         }
       });
 
-      // Si non trouvé, créer le technicien
       if (!technicianId && user) {
         const newTech = await addDoc(collection(db, 'adminData'), {
           name: technicianName.trim(),
@@ -413,13 +519,13 @@ export const useExcelImport = (user) => {
 
       return technicianId;
     } catch (error) {
-      console.error('Erreur recherche technicien:', error);
+      console.error('❌ Erreur recherche technicien:', error);
       return null;
     }
   };
 
   /**
-   * ✅ CORRECTION MAJEURE : Créer dans la bonne collection (dropdownOptions OU adminData)
+   * Créer les nouvelles valeurs approuvées dans les bonnes collections
    */
   const createApprovedDropdownValues = async (approvedNewValues) => {
     if (!approvedNewValues || Object.keys(approvedNewValues).length === 0) {
@@ -432,7 +538,7 @@ export const useExcelImport = (user) => {
     const dropdownOptionsRef = collection(db, 'dropdownOptions');
     let createdCount = 0;
 
-    // ✅ TECHNICIENS → adminData
+    // Techniciens → adminData
     if (approvedNewValues.assignedToName && Array.isArray(approvedNewValues.assignedToName)) {
       for (const techName of approvedNewValues.assignedToName) {
         const newTechRef = doc(adminDataRef);
@@ -444,12 +550,12 @@ export const useExcelImport = (user) => {
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
-        console.log(`✅ Nouveau technicien approuvé: ${techName}`);
+        console.log(`✅ Nouveau technicien: ${techName}`);
         createdCount++;
       }
     }
 
-    // ✅ LOCALISATIONS → dropdownOptions
+    // Localisations → dropdownOptions
     if (approvedNewValues.location && Array.isArray(approvedNewValues.location)) {
       for (const locName of approvedNewValues.location) {
         const newLocRef = doc(dropdownOptionsRef);
@@ -461,12 +567,12 @@ export const useExcelImport = (user) => {
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
-        console.log(`✅ Nouvelle localisation approuvée: ${locName}`);
+        console.log(`✅ Nouvelle localisation: ${locName}`);
         createdCount++;
       }
     }
 
-    // ✅ TYPES DE LOCAL → dropdownOptions
+    // Types de local → dropdownOptions
     if (approvedNewValues.roomType && Array.isArray(approvedNewValues.roomType)) {
       for (const roomType of approvedNewValues.roomType) {
         const newRoomTypeRef = doc(dropdownOptionsRef);
@@ -479,12 +585,12 @@ export const useExcelImport = (user) => {
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
-        console.log(`✅ Nouveau type de local approuvé: ${roomType}`);
+        console.log(`✅ Nouveau type de local: ${roomType}`);
         createdCount++;
       }
     }
 
-    // ✅ TYPES DE MISSION → dropdownOptions
+    // Types de mission → dropdownOptions
     if (approvedNewValues.missionType && Array.isArray(approvedNewValues.missionType)) {
       for (const missionType of approvedNewValues.missionType) {
         const newMissionTypeRef = doc(dropdownOptionsRef);
@@ -497,12 +603,12 @@ export const useExcelImport = (user) => {
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
-        console.log(`✅ Nouveau type de mission approuvé: ${missionType}`);
+        console.log(`✅ Nouveau type de mission: ${missionType}`);
         createdCount++;
       }
     }
 
-    // ✅ TYPES D'INTERVENTION → dropdownOptions
+    // Types d'intervention → dropdownOptions
     if (approvedNewValues.interventionType && Array.isArray(approvedNewValues.interventionType)) {
       for (const interventionType of approvedNewValues.interventionType) {
         const newInterventionTypeRef = doc(dropdownOptionsRef);
@@ -515,12 +621,12 @@ export const useExcelImport = (user) => {
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
-        console.log(`✅ Nouveau type d'intervention approuvé: ${interventionType}`);
+        console.log(`✅ Nouveau type d'intervention: ${interventionType}`);
         createdCount++;
       }
     }
 
-    // ✅ CRÉATEURS → dropdownOptions
+    // Créateurs → dropdownOptions
     if (approvedNewValues.creatorName && Array.isArray(approvedNewValues.creatorName)) {
       for (const creatorName of approvedNewValues.creatorName) {
         const newCreatorRef = doc(dropdownOptionsRef);
@@ -532,12 +638,11 @@ export const useExcelImport = (user) => {
           createdBy: user.uid,
           createdByName: user.name || 'Import'
         });
-        console.log(`✅ Nouveau créateur approuvé: ${creatorName}`);
+        console.log(`✅ Nouveau créateur: ${creatorName}`);
         createdCount++;
       }
     }
 
-    // Commit toutes les nouvelles valeurs
     if (createdCount > 0) {
       await batch.commit();
       console.log(`✅ ${createdCount} nouvelle(s) valeur(s) créée(s)`);
@@ -546,8 +651,6 @@ export const useExcelImport = (user) => {
 
   /**
    * Importer les données (version avec validation)
-   * @param {File|Array} fileOrData - Fichier Excel OU tableau de données déjà validées
-   * @param {Object} approvedNewValues - Nouvelles valeurs approuvées par l'utilisateur
    */
   const importData = async (fileOrData, approvedNewValues = {}) => {
     if (!user) {
@@ -574,12 +677,12 @@ export const useExcelImport = (user) => {
     try {
       let interventionsToImport = [];
 
-      // Cas 1 : On reçoit un tableau de données pré-validées
+      // Cas 1 : Données pré-validées
       if (Array.isArray(fileOrData)) {
         interventionsToImport = fileOrData;
         console.log(`📦 Import de ${interventionsToImport.length} interventions pré-validées`);
       } 
-      // Cas 2 : On reçoit un fichier (ancien comportement)
+      // Cas 2 : Fichier Excel
       else {
         console.log('📖 Lecture du fichier Excel...');
         const rawData = await readExcelFile(fileOrData);
@@ -591,7 +694,6 @@ export const useExcelImport = (user) => {
           throw new Error('Aucune donnée à importer');
         }
 
-        // Parser et valider
         const errorDetails = [];
         for (let i = 0; i < rawData.length; i++) {
           const row = rawData[i];
@@ -603,7 +705,8 @@ export const useExcelImport = (user) => {
             continue;
           }
 
-          const mapped = mapExcelToFirestore(row, user);
+          // ✅ mapExcelToFirestore est maintenant async
+          const mapped = await mapExcelToFirestore(row, user);
           if (mapped) {
             interventionsToImport.push(mapped);
           }
@@ -612,11 +715,11 @@ export const useExcelImport = (user) => {
         }
       }
 
-      // 1. Créer les nouvelles valeurs approuvées dans les dropdowns
+      // Créer les nouvelles valeurs approuvées
       console.log('➕ Création des nouvelles valeurs approuvées...');
       await createApprovedDropdownValues(approvedNewValues);
 
-      // 2. Importer les interventions
+      // Importer les interventions
       console.log(`💾 Import de ${interventionsToImport.length} interventions...`);
       
       const batch = writeBatch(db);
@@ -760,7 +863,6 @@ export const useExcelImport = (user) => {
    * Télécharger le template Excel
    */
   const downloadTemplate = () => {
-    // Données d'exemple
     const templateData = [
       {
         'Date': '15/01/2024',
@@ -809,30 +911,17 @@ export const useExcelImport = (user) => {
       }
     ];
 
-    // Créer le workbook
     const worksheet = XLSX.utils.json_to_sheet(templateData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Interventions');
 
-    // Ajuster la largeur des colonnes
     const columnWidths = [
-      { wch: 12 },  // Date
-      { wch: 15 },  // Demandeur
-      { wch: 20 },  // Localisation
-      { wch: 10 },  // Etat
-      { wch: 30 },  // Mission
-      { wch: 40 },  // Commentaires Mission
-      { wch: 20 },  // Intervenant
-      { wch: 40 },  // Commentaire Intervenant
-      { wch: 12 },  // Statut
-      { wch: 15 },  // Type Local
-      { wch: 15 },  // Type Mission
-      { wch: 20 },  // Type Intervention
-      { wch: 12 }   // Priorité
+      { wch: 12 }, { wch: 15 }, { wch: 20 }, { wch: 10 },
+      { wch: 30 }, { wch: 40 }, { wch: 20 }, { wch: 40 },
+      { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 12 }
     ];
     worksheet['!cols'] = columnWidths;
 
-    // Télécharger le fichier
     XLSX.writeFile(workbook, `template_interventions_${Date.now()}.xlsx`);
 
     addToast({

@@ -118,8 +118,22 @@ const InterventionDetailModal = ({
 
   // ✅ NOUVEAU : Support multi-chambres avec fallback
   const rooms = useMemo(() => {
-    return intervention?.locations || [intervention?.location].filter(Boolean);
-  }, [intervention?.locations, intervention?.location]);
+  return intervention?.locations || [];
+}, [intervention?.locations]);
+
+// Affichage
+{rooms.length === 1 ? (
+  <span>{rooms[0]}</span>
+) : rooms.length > 1 ? (
+  <div>
+    <span className="font-bold">{rooms.length} chambres</span>
+    <span className="text-sm text-gray-500 ml-2">
+      ({rooms.slice(0, 3).join(', ')}{rooms.length > 3 ? '...' : ''})
+    </span>
+  </div>
+) : (
+  'Non spécifié'
+)}
 
   const primaryRoom = intervention?.location;
 
