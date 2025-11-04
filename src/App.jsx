@@ -3,6 +3,7 @@ import React, { useState, useEffect, lazy, Suspense, useMemo } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { useNotifications } from './contexts/NotificationContext';
 
 import { ToastContainer, useToast } from './components/common/Toast';
 import { setGlobalToast } from './utils/toast';
@@ -137,6 +138,8 @@ const AppContent = () => {
     getActiveItems
   } = useUnifiedData(user);
   
+  const { unreadCount } = useNotifications();
+
   const { 
     settings, 
     updateSettings, 
@@ -267,7 +270,7 @@ const AppContent = () => {
             onOpenAdmin={() => setIsAdminPanelOpen(true)}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
             user={user}
-            notificationCount={0}
+            notificationCount={unreadCount}
           />
 
           <div className="flex-1 overflow-y-auto p-4 lg:p-8">
@@ -494,6 +497,8 @@ const AppContent = () => {
         </Suspense>
       )}
 
+      {user && <NotificationPrompt />}
+      
       {isTemplateModalOpen && (
         <Suspense fallback={<LoadingSpinner />}>
           <TemplateManager
@@ -533,11 +538,11 @@ const App = () => {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <AppProvider>
-          <NotificationProvider>
+        <NotificationProvider>
+          <AppProvider>
             <AppContent />
-          </NotificationProvider>
-        </AppProvider>
+          </AppProvider>
+        </NotificationProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

@@ -61,6 +61,13 @@ const AdminPanel = ({
       icon: Database, 
       roles: ['superadmin', 'manager'],
       description: 'Listes déroulantes, techniciens, fournisseurs'
+    },
+    { 
+      id: 'import', 
+      label: 'Import Excel', 
+      icon: FileSpreadsheet, 
+      roles: ['superadmin', 'manager'],
+      description: 'Importer des interventions en masse'
     }
   ];
 
@@ -119,7 +126,12 @@ const AdminPanel = ({
             )}
           </div>
         );
-      
+      case 'import':
+        return (
+          <div className="p-8">
+            <ExcelImportView user={user} />
+          </div>
+        );
       default:
         return (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
