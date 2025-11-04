@@ -1,5 +1,4 @@
-// src/App.jsx
-// ✅ VERSION FINALE AVEC RECHERCHE GLOBALE
+// src/App.jsx - VERSION CORRIGÉE
 import React, { useState, useEffect, lazy, Suspense, useMemo } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppProvider, useApp } from './contexts/AppContext';
@@ -31,7 +30,14 @@ import UserManagementModal from './components/Users/UserManagementModal';
 import UpdatePasswordModal from './components/Users/UpdatePasswordModal';
 import NotificationPrompt from './components/Notifications/NotificationPrompt';
 
-// ✨ NOUVEAU : Recherche globale
+// Admin Panel (conditionnel)
+let AdminPanel = null;
+try {
+  AdminPanel = require('./components/Admin/AdminPanel').default;
+} catch (e) {
+  console.warn('AdminPanel non disponible');
+}
+
 import GlobalSearch, { useGlobalSearch } from './components/Search/GlobalSearch';
 
 const DashboardView = lazy(() => import('./components/Dashboard/DashboardView'));
@@ -83,8 +89,10 @@ const AppContent = () => {
     setSidebarOpen
   } = useApp();
 
-  // ✨ NOUVEAU : Hook recherche globale
   const { isOpen: isGlobalSearchOpen, setIsOpen: setIsGlobalSearchOpen } = useGlobalSearch();
+
+  // NOUVEAU: État pour AdminPanel
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
 
   const { 
     interventions, 
@@ -94,7 +102,8 @@ const AppContent = () => {
     loadMore,
     addIntervention,
     updateIntervention: updateInterventionHook,
-    deleteIntervention: deleteInterventionHook
+    deleteIntervention: deleteInterventionHook,
+    addMessage
   } = useInterventions(user);
   
   const { 
@@ -143,13 +152,13 @@ const AppContent = () => {
       inProgress: interventionStats?.inProgress || 0,
       completed: interventionStats?.completed || 0,
       cancelled: interventionStats?.cancelled || 0,
-      averageResolutionTime: 2.5,
+      averageResolutionTime: interventionStats?.averageTime || 0,
+      completionRate: interventionStats?.completionRate || 0,
       technicianPerformance: [],
       roomIssueFrequency: []
     };
   }, [interventions, interventionStats]);
 
-  // ✨ NOUVEAU : Toutes les chambres pour la recherche
   const allRooms = useMemo(() => {
     const roomsSet = new Set();
     data.locations?.forEach(loc => {
@@ -331,11 +340,8 @@ const AppContent = () => {
         <Header
           onMenuClick={() => setSidebarOpen(!sidebarOpen)}
           onLogout={logout}
-          onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
-          onOpenAdmin={() => setIsAdminModalOpen(true)}
+          onOpenAdmin={() => setIsAdminPanelOpen(true)} // CORRIGÉ
           onOpenSettings={() => setIsSettingsModalOpen(true)}
-          onOpenQRCode={handleOpenQRCode}
-          onOpenTemplates={handleOpenTemplates}
           user={user}
           notificationCount={0}
         />
@@ -428,23 +434,6 @@ const AppContent = () => {
 
                 {(currentView === 'excel-import' || currentView === 'import') && user?.role === 'superadmin' && (
                   <ExcelImportView />
-                )}
-
-                {currentView === 'data-management' && user?.role === 'superadmin' && (
-                  <div className="space-y-6">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Gestion des données de référence</h2>
-                      <p className="text-gray-600 dark:text-gray-400 mb-4">
-                        Gérez toutes les données de référence de l'application : listes déroulantes, techniciens, fournisseurs, équipements...
-                      </p>
-                      <button
-                        onClick={() => setIsAdminModalOpen(true)}
-                        className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                      >
-                        Ouvrir la gestion des données
-                      </button>
-                    </div>
-                  </div>
                 )}
 
                 {currentView === 'search' && (
@@ -581,7 +570,14 @@ const AppContent = () => {
         </Suspense>
       )}
 
-      {/* ✨ NOUVEAU : Recherche globale Ctrl+K */}
+      {/* NOUVEAU: Admin Panel */}
+      {AdminPanel && isAdminPanelOpen && (
+        <AdminPanel
+          isOpen={isAdminPanelOpen}
+          onClose={() => setIsAdminPanelOpen(false)}
+        />
+      )}
+
       <GlobalSearch
         isOpen={isGlobalSearchOpen}
         onClose={() => setIsGlobalSearchOpen(false)}

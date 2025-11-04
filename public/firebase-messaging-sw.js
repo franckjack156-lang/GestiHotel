@@ -18,7 +18,7 @@ importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-comp
 
 // ✅ SOLUTION 1 (RECOMMANDÉE) : Utiliser Firebase Hosting Reserved URLs
 // Si votre app est hébergée sur Firebase Hosting, décommentez cette ligne :
-// importScripts('/__/firebase/init.js');
+importScripts('/__/firebase/init.js');
 
 // ✅ SOLUTION 2 : Configuration manuelle (pour développement local uniquement)
 // NOTE: Ces valeurs seront remplacées automatiquement en production par Firebase Hosting

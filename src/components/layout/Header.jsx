@@ -1,131 +1,111 @@
+// src/components/layout/Header.jsx - VERSION CORRIGÉE
 import React, { useState } from 'react';
 import { 
-  List, 
-  Settings, 
-  ChevronDown, 
-  User,
-  LogOut,
-  ClipboardList,
-  QrCode,        // ✨ NOUVEAU
-  FileText       // ✨ NOUVEAU
+  Menu, 
+  Search, 
+  Bell, 
+  Settings,
+  Shield // NOUVEAU : Icône Admin
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Header = ({ 
-  currentView, 
   onMenuClick, 
+  onLogout,
+  onOpenAdmin, // NOUVEAU: Ouvrir le panneau admin
+  onOpenSettings,
   user,
-  onOpenSettings,    // ✅ CORRIGÉ
-  onOpenQRCode,      
-  onOpenTemplates    
+  notificationCount = 0
 }) => {
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const getViewTitle = () => {
-    switch (currentView) {
-      case 'dashboard': return 'Tableau de bord';
-      case 'interventions': return 'Gestion des interventions';
-      case 'analytics': return 'Analytics & Rapports';
-      case 'users': return 'Gestion des utilisateurs';
-      default: return 'GestiHôtel';
-    }
+  const userRole = user?.role || '';
+  const isAdminOrManager = ['superadmin', 'manager'].includes(userRole);
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
   };
 
   return (
-    <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-      <div className="px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center py-4">
-          {/* Partie gauche */}
-          <div className="flex items-center">
-            <button
-              onClick={onMenuClick}
-              className="lg:hidden px-4 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            >
-              <List size={24} />
-            </button>
-            
-            {/* Logo mobile */}
-            <div className="lg:hidden ml-3 flex items-center">
-              <div className="bg-indigo-600 w-8 h-8 rounded-lg flex items-center justify-center">
-                <ClipboardList className="text-white" size={18} />
-              </div>
-              <h1 className="ml-2 text-lg font-bold text-gray-800 dark:text-white">GestiHôtel</h1>
-            </div>
+    <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between gap-4">
+      
+      {/* Left: Menu */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+        >
+          <Menu size={24} />
+        </button>
 
-            {/* Titre desktop */}
-            <div className="hidden lg:block">
-              <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                {getViewTitle()}
-              </h1>
-            </div>
+        <div className="hidden md:block">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+            GestiHôtel
+          </h1>
+        </div>
+      </div>
+
+      {/* Center: Search bar */}
+      <div className="flex-1 max-w-2xl relative">
+        <div className="relative">
+          <Search 
+            size={20} 
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" 
+          />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={handleSearchChange}
+            placeholder="Rechercher une intervention, un technicien..."
+            className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-700 border border-transparent focus:border-indigo-500 dark:focus:border-indigo-400 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 outline-none transition"
+          />
+        </div>
+      </div>
+
+      {/* Right: Actions */}
+      <div className="flex items-center gap-2">
+        
+        {/* NOUVEAU: Bouton Admin (SuperAdmin et Manager seulement) */}
+        {isAdminOrManager && (
+          <button
+            onClick={onOpenAdmin}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition"
+            title="Panneau d'administration"
+          >
+            <Shield size={20} />
+            <span className="hidden sm:inline">Admin</span>
+          </button>
+        )}
+
+        {/* Paramètres */}
+        <button
+          onClick={onOpenSettings}
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+          title="Paramètres"
+        >
+          <Settings size={20} className="text-gray-700 dark:text-gray-300" />
+        </button>
+
+        {/* Notifications */}
+        <button className="relative p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+          <Bell size={20} className="text-gray-700 dark:text-gray-300" />
+          {notificationCount > 0 && (
+            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+          )}
+        </button>
+
+        {/* User Avatar */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+          <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold text-sm">
+            {user?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
           </div>
-
-          {/* Partie droite - Actions utilisateur */}
-          <div className="flex items-center gap-2">
-            {/* ✨ NOUVEAU: Bouton QR Code */}
-            {(user?.role === 'superadmin' || user?.role === 'manager' || user?.role === 'reception') && onOpenQRCode && (
-              <button
-                onClick={onOpenQRCode}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                title="QR Codes"
-              >
-                <QrCode size={20} className="text-gray-600 dark:text-gray-400" />
-              </button>
-            )}
-
-            {/* ✨ NOUVEAU: Bouton Templates */}
-            {(user?.role === 'superadmin' || user?.role === 'manager') && onOpenTemplates && (
-              <button
-                onClick={onOpenTemplates}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                title="Templates"
-              >
-                <FileText size={20} className="text-gray-600 dark:text-gray-400" />
-              </button>
-            )}
-
-            <button
-              onClick={onOpenSettings}
-              className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
-            >
-              <Settings size={18} />
-              <span className="hidden sm:inline">Paramètres</span>
-            </button>
-            
-            {/* Menu utilisateur */}
-            <div className="relative">
-              <button 
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 px-3 py-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
-              >
-                <div className="h-8 w-8 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center">
-                  <User className="text-indigo-600 dark:text-indigo-300" size={16} />
-                </div>
-                <span className="hidden sm:inline">{user?.name}</span>
-                <ChevronDown size={16} />
-              </button>
-              
-              {/* Dropdown user menu */}
-              {userMenuOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
-                  <div className="p-2">
-                    <div className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 border-b border-gray-100 dark:border-gray-600">
-                      <p className="font-medium">{user?.name}</p>
-                      <p className="capitalize">{user?.role}</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        // Logout handled by parent
-                        setUserMenuOpen(false);
-                      }}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded"
-                    >
-                      <LogOut size={16} />
-                      Déconnexion
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+          <div className="hidden md:block">
+            <p className="text-sm font-medium text-gray-900 dark:text-white">
+              {user?.name || user?.email || 'Utilisateur'}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+              {userRole}
+            </p>
           </div>
         </div>
       </div>

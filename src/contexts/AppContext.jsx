@@ -1,3 +1,4 @@
+// src/contexts/AppContext.jsx - MODIFIÉ
 import React, { createContext, useContext, useState } from 'react';
 
 const AppContext = createContext();
@@ -7,6 +8,7 @@ export const AppProvider = ({ children }) => {
   const [isCreateInterventionModalOpen, setIsCreateInterventionModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isAdminOptionsModalOpen, setIsAdminOptionsModalOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false); // NOUVEAU
   const [selectedIntervention, setSelectedIntervention] = useState(null);
 
   const value = {
@@ -18,6 +20,8 @@ export const AppProvider = ({ children }) => {
     setIsSettingsModalOpen,
     isAdminOptionsModalOpen,
     setIsAdminOptionsModalOpen,
+    isAdminPanelOpen, // NOUVEAU
+    setIsAdminPanelOpen, // NOUVEAU
     selectedIntervention,
     setSelectedIntervention
   };

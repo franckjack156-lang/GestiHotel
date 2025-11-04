@@ -1,148 +1,143 @@
+// src/contexts/AuthContext.jsx - MODIFIÉ POUR MULTI-ÉTABLISSEMENTS
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword, 
   signOut,
-  onAuthStateChanged,
-  updateProfile
+  onAuthStateChanged
 } from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc,
-  serverTimestamp 
-} from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [currentEstablishment, setCurrentEstablishment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Écouter les changements d'authentification
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
-      setError(null);
-
       if (firebaseUser) {
         try {
-          // Récupérer les données utilisateur depuis Firestore
           const userDocRef = doc(db, 'users', firebaseUser.uid);
           const userDoc = await getDoc(userDocRef);
 
           if (userDoc.exists()) {
             const userData = userDoc.data();
             
-            // Vérifier si l'utilisateur est actif
-            if (userData.active === false) {
-              await signOut(auth);
-              setUser(null);
-              setError('Votre compte a été désactivé. Contactez un administrateur.');
-              setLoading(false);
-              return;
+            const fullUser = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              ...userData
+            };
+            
+            setUser(fullUser);
+            
+            // Charger l'établissement de l'utilisateur
+            if (userData.establishmentId) {
+              const estabDocRef = doc(db, 'establishments', userData.establishmentId);
+              const estabDoc = await getDoc(estabDocRef);
+              
+              if (estabDoc.exists()) {
+                setCurrentEstablishment({
+                  id: estabDoc.id,
+                  ...estabDoc.data()
+                });
+              }
             }
 
-            // Mettre à jour la dernière connexion
+            // Mettre à jour lastLogin
             await updateDoc(userDocRef, {
               lastLogin: serverTimestamp()
             });
-
-            // Définir l'utilisateur avec toutes ses données
-            setUser({
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              name: userData.name || firebaseUser.displayName || 'Utilisateur',
-              role: userData.role || 'reception',
-              phone: userData.phone || '',
-              department: userData.department || '',
-              photoURL: firebaseUser.photoURL || userData.photoURL || null,
-              active: userData.active !== false,
-              createdAt: userData.createdAt,
-              lastLogin: userData.lastLogin
-            });
-          } else {
-            // L'utilisateur existe dans Auth mais pas dans Firestore
-            // Créer un document utilisateur basique
-            const newUserData = {
-              email: firebaseUser.email,
-              name: firebaseUser.displayName || 'Utilisateur',
-              role: 'reception',
-              active: true,
-              createdAt: serverTimestamp(),
-              lastLogin: serverTimestamp()
-            };
-
-            await setDoc(userDocRef, newUserData);
-
-            setUser({
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              name: firebaseUser.displayName || 'Utilisateur',
-              role: 'reception',
-              active: true
-            });
           }
         } catch (err) {
-          console.error('Erreur chargement données utilisateur:', err);
-          setError('Erreur lors du chargement des données utilisateur');
-          setUser(null);
+          console.error('Erreur chargement utilisateur:', err);
+          setError('Erreur de chargement des données utilisateur');
         }
       } else {
         setUser(null);
+        setCurrentEstablishment(null);
       }
-
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Connexion
   const login = async (email, password) => {
     setLoading(true);
     setError(null);
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      
-      // Vérifier si l'utilisateur est actif
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
 
-      if (userDoc.exists() && userDoc.data().active === false) {
+      if (!userDoc.exists()) {
         await signOut(auth);
         setLoading(false);
-        return { 
-          success: false, 
-          error: 'Votre compte a été désactivé. Contactez un administrateur.' 
-        };
+        const errorMessage = 'Utilisateur non trouvé dans la base de données';
+        setError(errorMessage);
+        return { success: false, error: errorMessage };
       }
 
+      const userData = userDoc.data();
+
+      if (!userData.active) {
+        await signOut(auth);
+        setLoading(false);
+        const errorMessage = 'Compte désactivé. Contactez un administrateur.';
+        setError(errorMessage);
+        return { success: false, error: errorMessage };
+      }
+
+      const fullUser = {
+        uid: userCredential.user.uid,
+        email: userCredential.user.email,
+        ...userData
+      };
+
+      setUser(fullUser);
+      
+      // Charger l'établissement
+      if (userData.establishmentId) {
+        const estabDocRef = doc(db, 'establishments', userData.establishmentId);
+        const estabDoc = await getDoc(estabDocRef);
+        
+        if (estabDoc.exists()) {
+          setCurrentEstablishment({
+            id: estabDoc.id,
+            ...estabDoc.data()
+          });
+        }
+      }
+
+      await updateDoc(userDocRef, {
+        lastLogin: serverTimestamp()
+      });
+
       setLoading(false);
-      return { success: true, user: userCredential.user };
+      return { success: true, user: fullUser };
     } catch (err) {
       setLoading(false);
-      let errorMessage = 'Erreur de connexion';
+      let errorMessage;
 
       switch (err.code) {
-        case 'auth/user-not-found':
-          errorMessage = 'Aucun compte trouvé avec cet email';
-          break;
-        case 'auth/wrong-password':
-          errorMessage = 'Mot de passe incorrect';
-          break;
         case 'auth/invalid-email':
-          errorMessage = 'Email invalide';
+          errorMessage = 'Adresse email invalide';
           break;
         case 'auth/user-disabled':
-          errorMessage = 'Ce compte a été désactivé';
+          errorMessage = 'Compte utilisateur désactivé';
+          break;
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+          errorMessage = 'Email ou mot de passe incorrect';
           break;
         case 'auth/too-many-requests':
-          errorMessage = 'Trop de tentatives. Réessayez plus tard';
+          errorMessage = 'Trop de tentatives. Réessayez plus tard.';
           break;
         case 'auth/network-request-failed':
           errorMessage = 'Erreur réseau. Vérifiez votre connexion';
@@ -156,49 +151,42 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Inscription
-  const signup = async (email, password, additionalData = {}) => {
+  const signup = async (email, password, additionalData) => {
     setLoading(true);
     setError(null);
 
     try {
-      // Créer l'utilisateur dans Firebase Auth
+      const { createUserWithEmailAndPassword } = await import('firebase/auth');
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-
-      // Mettre à jour le profil
-      if (additionalData.name) {
-        await updateProfile(userCredential.user, {
-          displayName: additionalData.name
-        });
-      }
-
-      // Créer le document utilisateur dans Firestore
+      
       const userDocRef = doc(db, 'users', userCredential.user.uid);
-      const userData = {
-        email: email,
-        name: additionalData.name || 'Utilisateur',
-        role: additionalData.role || 'reception',
-        department: additionalData.department || '',
-        phone: additionalData.phone || '',
-        active: true,
+      const newUserData = {
+        email,
+        ...additionalData,
         createdAt: serverTimestamp(),
         lastLogin: serverTimestamp()
       };
-
-      await setDoc(userDocRef, userData);
-
+      
+      await setDoc(userDocRef, newUserData);
+      
+      setUser({
+        uid: userCredential.user.uid,
+        email: userCredential.user.email,
+        ...newUserData
+      });
+      
       setLoading(false);
-      return { success: true, user: userCredential.user };
+      return { success: true };
     } catch (err) {
       setLoading(false);
-      let errorMessage = 'Erreur lors de l\'inscription';
+      let errorMessage;
 
       switch (err.code) {
         case 'auth/email-already-in-use':
-          errorMessage = 'Cet email est déjà utilisé';
+          errorMessage = 'Cette adresse email est déjà utilisée';
           break;
         case 'auth/invalid-email':
-          errorMessage = 'Email invalide';
+          errorMessage = 'Adresse email invalide';
           break;
         case 'auth/weak-password':
           errorMessage = 'Le mot de passe doit contenir au moins 6 caractères';
@@ -215,7 +203,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Déconnexion
   const logout = async () => {
     setLoading(true);
     setError(null);
@@ -223,6 +210,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await signOut(auth);
       setUser(null);
+      setCurrentEstablishment(null);
       setLoading(false);
       return { success: true };
     } catch (err) {
@@ -233,7 +221,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Rafraîchir les données utilisateur
   const refreshUser = async () => {
     if (!user) return;
 
@@ -247,20 +234,69 @@ export const AuthProvider = ({ children }) => {
           ...prev,
           ...userData
         }));
+        
+        // Recharger l'établissement
+        if (userData.establishmentId) {
+          const estabDocRef = doc(db, 'establishments', userData.establishmentId);
+          const estabDoc = await getDoc(estabDocRef);
+          
+          if (estabDoc.exists()) {
+            setCurrentEstablissement({
+              id: estabDoc.id,
+              ...estabDoc.data()
+            });
+          }
+        }
       }
     } catch (err) {
       console.error('Erreur rafraîchissement utilisateur:', err);
     }
   };
 
+  const changeEstablishment = async (establishmentId) => {
+    if (!user) return { success: false, error: 'Non connecté' };
+    
+    // Vérifier que l'utilisateur peut changer d'établissement (superadmin uniquement)
+    if (user.role !== 'superadmin') {
+      return { success: false, error: 'Permission refusée' };
+    }
+    
+    try {
+      const estabDocRef = doc(db, 'establishments', establishmentId);
+      const estabDoc = await getDoc(estabDocRef);
+      
+      if (!estabDoc.exists()) {
+        return { success: false, error: 'Établissement non trouvé' };
+      }
+      
+      setCurrentEstablishment({
+        id: estabDoc.id,
+        ...estabDoc.data()
+      });
+      
+      // Optionnel : sauvegarder dans les préférences utilisateur
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, {
+        currentEstablishmentId: establishmentId
+      });
+      
+      return { success: true };
+    } catch (err) {
+      console.error('Erreur changement établissement:', err);
+      return { success: false, error: err.message };
+    }
+  };
+
   const value = {
     user,
+    currentEstablishment,
     loading,
     error,
     login,
     signup,
     logout,
-    refreshUser
+    refreshUser,
+    changeEstablishment
   };
 
   return (
@@ -270,7 +306,6 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Hook personnalisé
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

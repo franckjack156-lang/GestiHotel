@@ -1,6 +1,6 @@
 // src/hooks/useInterventions.js
-// ✅ COMPLÉTÉ : Hook avec toutes les fonctions CRUD
-// Version finale avec add/update/delete/pagination
+// ✅ VERSION COMPLÈTE AVEC MULTI-ÉTABLISSEMENTS
+// Toutes les fonctions CRUD + pagination + filtrage par établissement
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
@@ -47,17 +47,47 @@ export const useInterventions = (user, options = {}) => {
 
     console.log('🔄 useInterventions: Démarrage écoute Firebase');
 
-    let q = query(
-      collection(db, 'interventions'),
-      orderBy('createdAt', 'desc'),
-      limit(pageSize)
-    );
+    let q;
 
-    // Filtrer par technicien si role = technician
-    if (user.role === 'technician') {
+    // MODIFIÉ: Filtrage par établissement
+    if (user.role === 'superadmin') {
+      // SuperAdmin: voir tous les établissements ou filtrer si un établissement est sélectionné
+      if (user.currentEstablishmentId) {
+        q = query(
+          collection(db, 'interventions'),
+          where('establishmentId', '==', user.currentEstablishmentId),
+          orderBy('createdAt', 'desc'),
+          limit(pageSize)
+        );
+      } else {
+        // Voir toutes les interventions de tous les établissements
+        q = query(
+          collection(db, 'interventions'),
+          orderBy('createdAt', 'desc'),
+          limit(pageSize)
+        );
+      }
+    } else if (user.role === 'technician') {
+      // Technicien: ses interventions assignées dans son établissement
       q = query(
         collection(db, 'interventions'),
+        where('establishmentId', '==', user.establishmentId),
         where('assignedTo', '==', user.uid),
+        orderBy('createdAt', 'desc'),
+        limit(pageSize)
+      );
+    } else {
+      // Autres rôles: toutes les interventions de leur établissement
+      if (!user.establishmentId) {
+        console.warn('⚠️ Utilisateur sans établissement assigné');
+        setInterventions([]);
+        setLoading(false);
+        return;
+      }
+
+      q = query(
+        collection(db, 'interventions'),
+        where('establishmentId', '==', user.establishmentId),
         orderBy('createdAt', 'desc'),
         limit(pageSize)
       );
@@ -88,9 +118,19 @@ export const useInterventions = (user, options = {}) => {
       },
       (err) => {
         console.error('❌ useInterventions: Erreur Firestore:', err);
-        setError(err.message);
+        
+        // Gestion des erreurs spécifiques
+        if (err.code === 'permission-denied') {
+          setError('Permissions insuffisantes pour accéder aux interventions');
+          toast.error('Erreur de permissions', {
+            description: 'Vérifiez que votre établissement est correctement configuré'
+          });
+        } else {
+          setError(err.message);
+          toast.error('Erreur chargement interventions');
+        }
+        
         setLoading(false);
-        toast.error('Erreur chargement interventions');
       }
     );
 
@@ -98,7 +138,7 @@ export const useInterventions = (user, options = {}) => {
       console.log('🛑 useInterventions: Arrêt écoute Firebase');
       unsubscribe();
     };
-  }, [user, autoRefresh, pageSize]);
+  }, [user, autoRefresh, pageSize, user?.currentEstablishmentId, user?.establishmentId]);
 
   // ===================================
   // PAGINATION
@@ -110,17 +150,39 @@ export const useInterventions = (user, options = {}) => {
     console.log('📄 useInterventions: Chargement page suivante');
 
     try {
-      let q = query(
-        collection(db, 'interventions'),
-        orderBy('createdAt', 'desc'),
-        startAfter(lastDoc),
-        limit(pageSize)
-      );
+      let q;
 
-      if (user.role === 'technician') {
+      // MODIFIÉ: Appliquer le même filtrage que pour le chargement initial
+      if (user.role === 'superadmin') {
+        if (user.currentEstablishmentId) {
+          q = query(
+            collection(db, 'interventions'),
+            where('establishmentId', '==', user.currentEstablishmentId),
+            orderBy('createdAt', 'desc'),
+            startAfter(lastDoc),
+            limit(pageSize)
+          );
+        } else {
+          q = query(
+            collection(db, 'interventions'),
+            orderBy('createdAt', 'desc'),
+            startAfter(lastDoc),
+            limit(pageSize)
+          );
+        }
+      } else if (user.role === 'technician') {
         q = query(
           collection(db, 'interventions'),
+          where('establishmentId', '==', user.establishmentId),
           where('assignedTo', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+          startAfter(lastDoc),
+          limit(pageSize)
+        );
+      } else {
+        q = query(
+          collection(db, 'interventions'),
+          where('establishmentId', '==', user.establishmentId),
           orderBy('createdAt', 'desc'),
           startAfter(lastDoc),
           limit(pageSize)
@@ -139,7 +201,9 @@ export const useInterventions = (user, options = {}) => {
         id: doc.id,
         ...doc.data(),
         createdAt: doc.data().createdAt?.toDate?.() || new Date(),
-        updatedAt: doc.data().updatedAt?.toDate?.() || null
+        updatedAt: doc.data().updatedAt?.toDate?.() || null,
+        startedAt: doc.data().startedAt?.toDate?.() || null,
+        completedAt: doc.data().completedAt?.toDate?.() || null
       }));
 
       setInterventions(prev => [...prev, ...newInterventions]);
@@ -201,6 +265,16 @@ export const useInterventions = (user, options = {}) => {
     try {
       console.log('➕ Création intervention:', interventionData);
 
+      // MODIFIÉ: Vérifier et ajouter establishmentId
+      const establishmentId = interventionData.establishmentId || user.establishmentId || user.currentEstablishmentId;
+      
+      if (!establishmentId && user.role !== 'superadmin') {
+        toast.error('Établissement requis', {
+          description: 'Impossible de créer une intervention sans établissement'
+        });
+        return { success: false, error: 'Établissement requis' };
+      }
+
       // Upload photos si présentes
       let photoUrls = [];
       if (photos.length > 0) {
@@ -229,6 +303,7 @@ export const useInterventions = (user, options = {}) => {
       // Créer le document intervention
       const newIntervention = {
         ...interventionData,
+        establishmentId, // NOUVEAU
         photos: photoUrls,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -255,7 +330,15 @@ export const useInterventions = (user, options = {}) => {
       return { success: true, id: docRef.id };
     } catch (error) {
       console.error('❌ Erreur création intervention:', error);
-      toast.error('Erreur lors de la création', { description: error.message });
+      
+      if (error.code === 'permission-denied') {
+        toast.error('Permission refusée', { 
+          description: 'Vérifiez vos droits d\'accès' 
+        });
+      } else {
+        toast.error('Erreur lors de la création', { description: error.message });
+      }
+      
       return { success: false, error: error.message };
     }
   };
@@ -273,11 +356,20 @@ export const useInterventions = (user, options = {}) => {
         throw new Error('Intervention non trouvée');
       }
 
+      // MODIFIÉ: Vérifier que l'utilisateur peut modifier cette intervention
+      if (user.role !== 'superadmin' && 
+          intervention.establishmentId !== user.establishmentId) {
+        throw new Error('Permission refusée: intervention d\'un autre établissement');
+      }
+
       // Préparer les données de mise à jour
       const updateData = {
         ...updates,
         updatedAt: serverTimestamp()
       };
+
+      // IMPORTANT: Ne JAMAIS permettre la modification de establishmentId
+      delete updateData.establishmentId;
 
       // Ajouter à l'historique si changement de statut
       if (updates.status && updates.status !== intervention.status) {
@@ -312,7 +404,15 @@ export const useInterventions = (user, options = {}) => {
       return { success: true };
     } catch (error) {
       console.error('❌ Erreur mise à jour intervention:', error);
-      toast.error('Erreur lors de la mise à jour', { description: error.message });
+      
+      if (error.code === 'permission-denied') {
+        toast.error('Permission refusée', { 
+          description: 'Vous ne pouvez pas modifier cette intervention' 
+        });
+      } else {
+        toast.error('Erreur lors de la mise à jour', { description: error.message });
+      }
+      
       return { success: false, error: error.message };
     }
   };
@@ -324,6 +424,11 @@ export const useInterventions = (user, options = {}) => {
   const deleteIntervention = async (interventionId) => {
     try {
       console.log('🗑️ Suppression intervention:', interventionId);
+
+      // MODIFIÉ: Seul le superadmin peut supprimer
+      if (user.role !== 'superadmin') {
+        throw new Error('Seul un superadmin peut supprimer une intervention');
+      }
 
       await deleteDoc(doc(db, 'interventions', interventionId));
 
@@ -349,6 +454,12 @@ export const useInterventions = (user, options = {}) => {
       const intervention = interventions.find(i => i.id === interventionId);
       if (!intervention) {
         throw new Error('Intervention non trouvée');
+      }
+
+      // MODIFIÉ: Vérifier l'accès à l'établissement
+      if (user.role !== 'superadmin' && 
+          intervention.establishmentId !== user.establishmentId) {
+        throw new Error('Permission refusée');
       }
 
       // Upload photos si présentes
