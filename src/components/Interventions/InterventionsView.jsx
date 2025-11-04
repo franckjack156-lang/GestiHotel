@@ -1,8 +1,9 @@
-// src/components/Interventions/InterventionsView.jsx - VERSION AVEC EXPORT
+// src/components/Interventions/InterventionsView.jsx
 import React, { useState, useMemo } from 'react';
 import { Search, Plus, MapPin, Camera, AlertCircle, Wrench, Filter, Eye, Home, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import ExportButton from '../common/ExportButton';
+import SortControl, { useSortedData, INTERVENTION_SORT_OPTIONS } from '../common/SortControl';
 
 const InterventionsView = ({ 
   interventions = [],
@@ -80,6 +81,9 @@ const InterventionsView = ({
     
     return result;
   }, [interventions, searchTerm, filterStatus]);
+
+  // ✨ NOUVEAU : Tri
+  const { sortedData, sortConfig, setSortConfig } = useSortedData(filteredInterventions);
 
   const statusCounts = {
     all: interventions.length,
@@ -159,65 +163,73 @@ const InterventionsView = ({
         </div>
       )}
 
-      {/* ✅ EN-TÊTE AVEC EXPORT */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-          <input
-            type="text"
-            placeholder="Rechercher par chambre, description, technicien..."
-            value={searchTerm}
-            onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-          />
-        </div>
-        
-        <div className="flex gap-2">
-          <select
-            value={filterStatus}
-            onChange={(e) => onFilterChange && onFilterChange(e.target.value)}
-            className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-          >
-            <option value="all">Tous ({statusCounts.all})</option>
-            <option value="todo">À faire ({statusCounts.todo})</option>
-            <option value="inprogress">En cours ({statusCounts.inprogress})</option>
-            <option value="ordering">En commande ({statusCounts.ordering})</option>
-            <option value="completed">Terminées ({statusCounts.completed})</option>
-            <option value="cancelled">Annulées ({statusCounts.cancelled})</option>
-          </select>
-
-          {/* ✅ BOUTON EXPORT */}
-          <ExportButton
-            data={filteredInterventions}
-            type="interventions"
-            filters={{
-              status: filterStatus !== 'all' ? filterStatus : null,
-              search: searchTerm || null,
-              technician: user?.linkedTechnicianId && !showAllInterventions ? user.name : null
-            }}
-            options={{
-              title: 'Liste des interventions',
-              includeStats: true,
-              includeHistory: false
-            }}
-            variant="secondary"
-          />
+      {/* EN-TÊTE */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <input
+              type="text"
+              placeholder="Rechercher par chambre, description, technicien..."
+              value={searchTerm}
+              onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            />
+          </div>
           
-          {onCreateClick && (
-            <button
-              onClick={onCreateClick}
-              className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition flex items-center gap-2"
+          <div className="flex gap-2">
+            <select
+              value={filterStatus}
+              onChange={(e) => onFilterChange && onFilterChange(e.target.value)}
+              className="px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             >
-              <Plus size={20} />
-              <span className="hidden sm:inline">Nouvelle intervention</span>
-            </button>
-          )}
+              <option value="all">Tous ({statusCounts.all})</option>
+              <option value="todo">À faire ({statusCounts.todo})</option>
+              <option value="inprogress">En cours ({statusCounts.inprogress})</option>
+              <option value="ordering">En commande ({statusCounts.ordering})</option>
+              <option value="completed">Terminées ({statusCounts.completed})</option>
+              <option value="cancelled">Annulées ({statusCounts.cancelled})</option>
+            </select>
+
+            <ExportButton
+              data={sortedData}
+              type="interventions"
+              filters={{
+                status: filterStatus !== 'all' ? filterStatus : null,
+                search: searchTerm || null,
+                technician: user?.linkedTechnicianId && !showAllInterventions ? user.name : null
+              }}
+              options={{
+                title: 'Liste des interventions',
+                includeStats: true,
+                includeHistory: false
+              }}
+              variant="secondary"
+            />
+            
+            {onCreateClick && (
+              <button
+                onClick={onCreateClick}
+                className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition flex items-center gap-2"
+              >
+                <Plus size={20} />
+                <span className="hidden sm:inline">Nouvelle intervention</span>
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* ✨ NOUVEAU : Contrôle de tri */}
+        <SortControl
+          value={sortConfig}
+          onChange={setSortConfig}
+          options={INTERVENTION_SORT_OPTIONS}
+        />
       </div>
 
       {/* Liste des interventions */}
       <div className="grid gap-4">
-        {filteredInterventions.map(intervention => (
+        {sortedData.map(intervention => (
           <div
             key={intervention.id}
             onClick={() => onInterventionClick && onInterventionClick(intervention)}
@@ -271,7 +283,7 @@ const InterventionsView = ({
           </div>
         ))}
         
-        {hasMore && filteredInterventions.length > 0 && (
+        {hasMore && sortedData.length > 0 && (
           <button
             onClick={onLoadMore}
             disabled={isLoadingMore}
@@ -296,7 +308,7 @@ const InterventionsView = ({
           </button>
         )}
         
-        {filteredInterventions.length === 0 && (
+        {sortedData.length === 0 && (
           <div className="text-center py-12">
             <MapPin size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400 mb-2">

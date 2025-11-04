@@ -1,27 +1,25 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+// src/App.jsx
+// ✅ VERSION FINALE AVEC RECHERCHE GLOBALE
+import React, { useState, useEffect, lazy, Suspense, useMemo } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 
-// Toast
 import { ToastContainer, useToast } from './components/common/Toast';
 import { setGlobalToast } from './utils/toast';
 
-// Analytics Firebase
 import { setAnalyticsUser, analyticsEvents } from './config/firebase';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
-// Hooks
+import { useInterventions } from './hooks/useInterventions';
+import { useBlockedRooms } from './hooks/useBlockedRooms';
+import { useUserManagement } from './hooks/useUserManagement';
 import { useUnifiedData } from './hooks/useUnifiedData';
 import { useSettings } from './hooks/useSettings';
-import { useUserManagement } from './hooks/useUserManagement';
-import { useNotificationsPush } from './hooks/useNotifications'; // ✅ RENOMMÉ pour éviter conflit
 
-// Layout
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 
-// Modals
 import AuthScreen from './components/Auth/AuthScreen';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import UnifiedAdminModal from './components/Admin/UnifiedAdminModal';
@@ -33,7 +31,9 @@ import UserManagementModal from './components/Users/UserManagementModal';
 import UpdatePasswordModal from './components/Users/UpdatePasswordModal';
 import NotificationPrompt from './components/Notifications/NotificationPrompt';
 
-// ✅ LAZY LOADING - Vues principales
+// ✨ NOUVEAU : Recherche globale
+import GlobalSearch, { useGlobalSearch } from './components/Search/GlobalSearch';
+
 const DashboardView = lazy(() => import('./components/Dashboard/DashboardView'));
 const InterventionsView = lazy(() => import('./components/Interventions/InterventionsView'));
 const AnalyticsView = lazy(() => import('./components/Analytics/AnalyticsView'));
@@ -45,31 +45,23 @@ const RoomsManagementView = lazy(() => import('./components/Rooms/RoomsManagemen
 const ExcelImportView = lazy(() => import('./components/Admin/ExcelImportView'));
 const AdvancedSearchView = lazy(() => import('./components/Search/AdvancedSearchView'));
 
-// Firestore imports
+const QRCodeManager = lazy(() => import('./components/QRCode/QRCodeManager'));
+const TemplateManager = lazy(() => import('./components/Templates/TemplateManager'));
+
 import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  onSnapshot,
-  addDoc,
   updateDoc,
   doc,
   serverTimestamp,
-  getDocs,
-  getDoc,
-  deleteDoc
+  deleteDoc,
+  addDoc,
+  collection
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from './config/firebase';
-
+import { db } from './config/firebase';
 import { toast } from './utils/toast';
-import { notificationService } from './services/notificationService';
 
 const AppContent = () => {
   const { user, loading: authLoading, logout } = useAuth();
   
-  // ✅ CORRECTION : Récupérer toasts et removeToast depuis useToast
   const toastInstance = useToast();
   const { toasts, removeToast } = toastInstance;
   
@@ -80,7 +72,6 @@ const AppContent = () => {
   useEffect(() => {
     if (user) {
       setAnalyticsUser(user.uid);
-      // ✅ CORRECTION : Utiliser userLogin au lieu de login
       analyticsEvents.userLogin?.(user.role || 'reception');
     }
   }, [user]);
@@ -92,35 +83,101 @@ const AppContent = () => {
     setSidebarOpen
   } = useApp();
 
-  const {
-    interventions,
-    blockedRooms,
-    users,
-    data,
-    loading: dataLoading,
-    refresh,
-    addItem,
-    getActiveItems
-  } = useUnifiedData(user);
+  // ✨ NOUVEAU : Hook recherche globale
+  const { isOpen: isGlobalSearchOpen, setIsOpen: setIsGlobalSearchOpen } = useGlobalSearch();
 
-  const { settings } = useSettings(user);
-
-  const {
+  const { 
+    interventions, 
+    loading: interventionsLoading,
+    stats: interventionStats,
+    hasMore,
+    loadMore,
+    addIntervention,
+    updateIntervention: updateInterventionHook,
+    deleteIntervention: deleteInterventionHook
+  } = useInterventions(user);
+  
+  const { 
+    blockedRooms, 
+    loading: blockedRoomsLoading,
+    toggleRoomBlock
+  } = useBlockedRooms(user);
+  
+  const { 
+    users, 
+    loading: usersLoading,
     updateUser,
     activateUser,
     deleteUser,
     resetPassword
   } = useUserManagement();
+  
+  const { 
+    data, 
+    loading: dataLoading,
+    addItem,
+    updateItem,
+    deleteItem,
+    toggleActive,
+    getActiveItems
+  } = useUnifiedData(user);
+  
+  const { 
+    settings, 
+    updateSettings, 
+    resetSettings,
+    isInitialized: settingsInitialized 
+  } = useSettings(user);
+
+  const loading = interventionsLoading || blockedRoomsLoading || usersLoading || dataLoading;
+
+  const analyticsStats = useMemo(() => {
+    return {
+      totalInterventions: interventions?.length || 0,
+      completedThisMonth: interventions?.filter(i => {
+        if (!i.status || i.status !== 'completed') return false;
+        const createdDate = i.createdAt instanceof Date ? i.createdAt : new Date(i.createdAt);
+        return createdDate.getMonth() === new Date().getMonth();
+      }).length || 0,
+      todo: interventionStats?.todo || 0,
+      inProgress: interventionStats?.inProgress || 0,
+      completed: interventionStats?.completed || 0,
+      cancelled: interventionStats?.cancelled || 0,
+      averageResolutionTime: 2.5,
+      technicianPerformance: [],
+      roomIssueFrequency: []
+    };
+  }, [interventions, interventionStats]);
+
+  // ✨ NOUVEAU : Toutes les chambres pour la recherche
+  const allRooms = useMemo(() => {
+    const roomsSet = new Set();
+    data.locations?.forEach(loc => {
+      const roomName = typeof loc === 'object' ? loc.value || loc.name : loc;
+      if (roomName) roomsSet.add(roomName);
+    });
+    interventions?.forEach(i => {
+      if (i.locations && Array.isArray(i.locations)) {
+        i.locations.forEach(loc => roomsSet.add(String(loc)));
+      } else if (i.location) {
+        roomsSet.add(String(i.location));
+      }
+    });
+    return Array.from(roomsSet).map(name => ({ name }));
+  }, [data.locations, interventions]);
 
   const [isCreateInterventionModalOpen, setIsCreateInterventionModalOpen] = useState(false);
   const [selectedIntervention, setSelectedIntervention] = useState(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [isUserManagementModalOpen, setIsUserManagementModalOpen] = useState(false);
   const [isUpdatePasswordModalOpen, setIsUpdatePasswordModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  
+  const [isQRCodeModalOpen, setIsQRCodeModalOpen] = useState(false);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [templatePrefilledData, setTemplatePrefilledData] = useState(null);
 
   const handleCreateIntervention = async (interventionData) => {
     try {
@@ -130,13 +187,13 @@ const AppContent = () => {
         createdByName: user.name || user.email,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        status: 'pending'
+        status: interventionData.status || 'todo'
       };
 
       await addDoc(collection(db, 'interventions'), newIntervention);
       toast.success('Intervention créée');
       setIsCreateInterventionModalOpen(false);
-      refresh();
+      setTemplatePrefilledData(null);
     } catch (error) {
       console.error('Erreur création:', error);
       toast.error('Erreur lors de la création');
@@ -151,53 +208,39 @@ const AppContent = () => {
         updatedBy: user.uid
       });
       toast.success('Intervention mise à jour');
-      refresh();
     } catch (error) {
       console.error('Erreur mise à jour:', error);
       toast.error('Erreur lors de la mise à jour');
     }
   };
 
+  const handleDeleteIntervention = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'interventions', id));
+      toast.success('Intervention supprimée');
+      setSelectedIntervention(null);
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+      toast.error('Erreur lors de la suppression');
+    }
+  };
+
   const handleToggleRoomBlock = async (room, reason = '') => {
     try {
-      const existingBlock = blockedRooms.find(br => br.room === room && br.blocked === true);
-
-      if (existingBlock) {
-        await updateDoc(doc(db, 'blockedRooms', existingBlock.id), {
-          blocked: false,
-          unblockedAt: serverTimestamp(),
-          unblockedBy: user.uid,
-          unblockedByName: user.name || user.email
-        });
-        toast.success(`Chambre ${room} débloquée`);
-      } else {
-        const newBlock = {
-          room,
-          reason,
-          blocked: true,
-          blockedAt: serverTimestamp(),
-          blockedBy: user.uid,
-          blockedByName: user.name || user.email
-        };
-
-        await addDoc(collection(db, 'blockedRooms'), newBlock);
-        toast.success(`Chambre ${room} bloquée`);
+      const result = await toggleRoomBlock(room, reason);
+      if (result.success) {
+        toast.success(`Chambre ${room} ${result.blocked ? 'bloquée' : 'débloquée'}`);
       }
-
-      return { success: true };
-      
+      return result;
     } catch (error) {
       console.error('Erreur blocage chambre:', error);
-      toast.error('Erreur lors du blocage', { description: error.message });
+      toast.error('Erreur lors du blocage');
       return { success: false, error: error.message };
     }
   };
 
-  const handleAddDropdownItem = async (locationData) => {
-    return await addItem('locations', locationData);
-  };
-
   const handleCreateUser = () => {
+    setSelectedUser(null);
     setIsCreateUserModalOpen(true);
   };
 
@@ -206,9 +249,13 @@ const AppContent = () => {
     setIsUserManagementModalOpen(true);
   };
 
-  const handleDeleteUser = async (user) => {
-    if (confirm(`Êtes-vous sûr de vouloir désactiver ${user.name} ?`)) {
-      return await deleteUser(user.id);
+  const handleDeleteUser = async (userId) => {
+    try {
+      await deleteUser(userId);
+      toast.success('Utilisateur supprimé');
+    } catch (error) {
+      console.error('Erreur suppression user:', error);
+      toast.error('Erreur lors de la suppression');
     }
   };
 
@@ -217,20 +264,43 @@ const AppContent = () => {
     setIsUpdatePasswordModalOpen(true);
   };
 
-  const analyticsStats = {
-    totalInterventions: interventions?.length || 0,
-    completedThisMonth: interventions?.filter(i => 
-      i.status === 'completed' && 
-      i.createdAt?.getMonth() === new Date().getMonth()
-    ).length || 0,
-    averageResolutionTime: 2.5,
-    technicianPerformance: [],
-    roomIssueFrequency: []
+  const handleAddDropdownItem = async (category, value) => {
+    try {
+      await addItem(category, {
+        name: value,
+        value: value.toLowerCase().replace(/\s+/g, '-'),
+        label: value
+      });
+      toast.success('Élément ajouté');
+    } catch (error) {
+      console.error('Erreur ajout dropdown:', error);
+      toast.error('Erreur lors de l\'ajout');
+    }
   };
 
-  if (authLoading || dataLoading) {
+  const handleOpenQRCode = () => {
+    setIsQRCodeModalOpen(true);
+  };
+
+  const handleQRCodeCreateIntervention = (data) => {
+    setIsQRCodeModalOpen(false);
+    setTemplatePrefilledData(data.prefilledData);
+    setIsCreateInterventionModalOpen(true);
+  };
+
+  const handleOpenTemplates = () => {
+    setIsTemplateModalOpen(true);
+  };
+
+  const handleUseTemplate = (templateData) => {
+    setIsTemplateModalOpen(false);
+    setTemplatePrefilledData(templateData);
+    setIsCreateInterventionModalOpen(true);
+  };
+
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
         <LoadingSpinner size="lg" />
       </div>
     );
@@ -241,23 +311,18 @@ const AppContent = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
       <div className={`
-        fixed lg:static inset-y-0 left-0 z-50
-        transform transition-transform duration-300 ease-in-out
+        fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 
+        transform transition-transform duration-300 lg:relative lg:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <Sidebar
           currentView={currentView}
           onViewChange={setCurrentView}
           onClose={() => setSidebarOpen(false)}
+          onOpenQRCode={handleOpenQRCode}
+          onOpenTemplates={handleOpenTemplates}
           user={user}
         />
       </div>
@@ -269,110 +334,136 @@ const AppContent = () => {
           onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
           onOpenAdmin={() => setIsAdminModalOpen(true)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
-          onNotificationClick={() => setIsNotificationPanelOpen(!isNotificationPanelOpen)}
+          onOpenQRCode={handleOpenQRCode}
+          onOpenTemplates={handleOpenTemplates}
           user={user}
-          // ✅ CORRECTION : Passer 0 par défaut si undefined
           notificationCount={0}
         />
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto">
           <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <Suspense fallback={
+            {loading ? (
               <div className="flex items-center justify-center h-64">
                 <LoadingSpinner size="lg" />
               </div>
-            }>
-              {currentView === 'dashboard' && (
-                <DashboardView 
-                  interventions={interventions || []}
-                  blockedRooms={blockedRooms || []}
-                  users={users || []}
-                  stats={analyticsStats}
-                  onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
-                  onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
-                />
-              )}
+            ) : (
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-64">
+                  <LoadingSpinner size="lg" />
+                </div>
+              }>
+                {currentView === 'dashboard' && (
+                  <DashboardView 
+                    interventions={interventions || []}
+                    blockedRooms={blockedRooms || []}
+                    users={users || []}
+                    stats={analyticsStats}
+                    onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
+                    onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
+                  />
+                )}
 
-              {currentView === 'interventions' && (
-                <InterventionsView
-                  interventions={interventions || []}
-                  users={users || []}
-                  blockedRooms={blockedRooms || []}
-                  dropdowns={data}
-                  onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
-                  onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
-                  onToggleRoomBlock={handleToggleRoomBlock}
-                />
-              )}
+                {currentView === 'interventions' && (
+                  <InterventionsView
+                    interventions={interventions || []}
+                    users={users || []}
+                    blockedRooms={blockedRooms || []}
+                    dropdowns={data}
+                    hasMore={hasMore}
+                    onLoadMore={loadMore}
+                    onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
+                    onCreateClick={() => setIsCreateInterventionModalOpen(true)}
+                    onToggleRoomBlock={handleToggleRoomBlock}
+                  />
+                )}
 
-              {currentView === 'analytics' && (
-                <AnalyticsView
-                  interventions={interventions || []}
-                  users={users || []}
-                  stats={analyticsStats}
-                />
-              )}
+                {currentView === 'analytics' && (
+                  <AnalyticsView
+                    interventions={interventions || []}
+                    users={users || []}
+                    stats={analyticsStats}
+                  />
+                )}
 
-              {currentView === 'planning' && (
-  <CalendarView
-    interventions={interventions || []}
-    users={users || []}
-    onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
-    onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
-  />
-)}
+                {currentView === 'planning' && (
+                  <CalendarView
+                    interventions={interventions || []}
+                    users={users || []}
+                    onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
+                    onCreateIntervention={() => setIsCreateInterventionModalOpen(true)}
+                  />
+                )}
 
-              {currentView === 'users' && (
-                <UsersManagementView
-                  users={users || []}
-                  onCreateUser={handleCreateUser}
-                  onEditUser={handleEditUser}
-                  onDeleteUser={handleDeleteUser}
-                  onUpdatePassword={handleUpdateUserPassword}
-                  currentUser={user}
-                />
-              )}
+                {currentView === 'users' && (
+                  <UsersManagementView
+                    users={users || []}
+                    currentUser={user}
+                    onUpdateUser={updateUser}
+                    onCreateUser={handleCreateUser}
+                    onEditUser={handleEditUser}
+                    onDeleteUser={handleDeleteUser}
+                    onUpdatePassword={handleUpdateUserPassword}
+                    onActivateUser={activateUser}
+                    onResetPassword={resetPassword}
+                  />
+                )}
 
-              {currentView === 'rooms' && (
-                <RoomsManagementView
-                  blockedRooms={blockedRooms || []}
-                  interventions={interventions || []}
-                  onToggleRoomBlock={handleToggleRoomBlock}
-                  onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
-                  dropdowns={data}
-                  onAddLocation={handleAddDropdownItem}
-                />
-              )}
+                {currentView === 'rooms' && (
+                  <RoomsManagementView
+                    blockedRooms={blockedRooms || []}
+                    interventions={interventions || []}
+                    onToggleRoomBlock={handleToggleRoomBlock}
+                    onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
+                    dropdowns={data}
+                    onAddLocation={handleAddDropdownItem}
+                  />
+                )}
 
-              {currentView === 'advanced-analytics' && (
-                <AdvancedAnalytics
-                  interventions={interventions || []}
-                  users={users || []}
-                />
-              )}
+                {currentView === 'advanced-analytics' && (
+                  <AdvancedAnalytics
+                    interventions={interventions || []}
+                    users={users || []}
+                  />
+                )}
 
-              {currentView === 'import' && user?.role === 'super_admin' && (
-                <ExcelImportView
-                  onImportComplete={refresh}
-                />
-              )}
+                {(currentView === 'excel-import' || currentView === 'import') && user?.role === 'superadmin' && (
+                  <ExcelImportView />
+                )}
 
-              {currentView === 'search' && (
-                <AdvancedSearchView
-                  interventions={interventions || []}
-                  users={users || []}
-                  onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
-                />
-              )}
+                {currentView === 'data-management' && user?.role === 'superadmin' && (
+                  <div className="space-y-6">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Gestion des données de référence</h2>
+                      <p className="text-gray-600 dark:text-gray-400 mb-4">
+                        Gérez toutes les données de référence de l'application : listes déroulantes, techniciens, fournisseurs, équipements...
+                      </p>
+                      <button
+                        onClick={() => setIsAdminModalOpen(true)}
+                        className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                      >
+                        Ouvrir la gestion des données
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-              {currentView === 'chat' && (
-                <ChatView
-                  interventions={interventions || []}
-                  users={users || []}
-                  currentUser={user}
-                />
-              )}
-            </Suspense>
+                {currentView === 'search' && (
+                  <AdvancedSearchView
+                    interventions={interventions || []}
+                    users={users || []}
+                    onInterventionClick={(intervention) => setSelectedIntervention(intervention)}
+                  />
+                )}
+
+                {currentView === 'chat' && (
+                  <ChatView
+                    interventions={interventions || []}
+                    users={users || []}
+                    currentUser={user}
+                  />
+                )}
+              </Suspense>
+            )}
           </div>
         </main>
       </div>
@@ -382,11 +473,16 @@ const AppContent = () => {
       {isCreateInterventionModalOpen && (
         <CreateInterventionModal
           isOpen={isCreateInterventionModalOpen}
-          onClose={() => setIsCreateInterventionModalOpen(false)}
+          onClose={() => {
+            setIsCreateInterventionModalOpen(false);
+            setTemplatePrefilledData(null);
+          }}
           onSubmit={handleCreateIntervention}
           users={users || []}
           dropdowns={data}
           currentUser={user}
+          prefilledData={templatePrefilledData}
+          onOpenTemplates={handleOpenTemplates}
         />
       )}
 
@@ -397,17 +493,10 @@ const AppContent = () => {
           intervention={selectedIntervention}
           blockedRooms={blockedRooms || []}
           onUpdate={handleUpdateIntervention}
-          onDelete={async (id) => {
-            try {
-              await deleteDoc(doc(db, 'interventions', id));
-              toast.success('Intervention supprimée');
-              setSelectedIntervention(null);
-            } catch (error) {
-              toast.error('Erreur suppression');
-            }
-          }}
+          onDelete={handleDeleteIntervention}
           users={users || []}
           dropdowns={data}
+          user={user}
         />
       )}
 
@@ -416,6 +505,8 @@ const AppContent = () => {
           isOpen={isSettingsModalOpen}
           onClose={() => setIsSettingsModalOpen(false)}
           settings={settings}
+          onUpdateSettings={updateSettings}
+          onResetSettings={resetSettings}
           user={user}
         />
       )}
@@ -425,8 +516,11 @@ const AppContent = () => {
           isOpen={isAdminModalOpen}
           onClose={() => setIsAdminModalOpen(false)}
           data={data}
-          onRefresh={refresh}
+          loading={dataLoading}
           onAddItem={addItem}
+          onUpdateItem={updateItem}
+          onDeleteItem={deleteItem}
+          onToggleActive={toggleActive}
           user={user}
         />
       )}
@@ -450,6 +544,10 @@ const AppContent = () => {
           }}
           user={selectedUser}
           onUpdateUser={updateUser}
+          onActivateUser={activateUser}
+          onDeleteUser={deleteUser}
+          onResetPassword={resetPassword}
+          currentUser={user}
         />
       )}
 
@@ -464,7 +562,46 @@ const AppContent = () => {
         />
       )}
 
-      {/* ✅ CORRECTION CRITIQUE : Passer toasts et removeToast au ToastContainer */}
+      {isQRCodeModalOpen && (
+        <Suspense fallback={<LoadingSpinner />}>
+          <QRCodeManager
+            onClose={() => setIsQRCodeModalOpen(false)}
+            onCreateIntervention={handleQRCodeCreateIntervention}
+          />
+        </Suspense>
+      )}
+
+      {isTemplateModalOpen && (
+        <Suspense fallback={<LoadingSpinner />}>
+          <TemplateManager
+            user={user}
+            onUseTemplate={handleUseTemplate}
+            onClose={() => setIsTemplateModalOpen(false)}
+          />
+        </Suspense>
+      )}
+
+      {/* ✨ NOUVEAU : Recherche globale Ctrl+K */}
+      <GlobalSearch
+        isOpen={isGlobalSearchOpen}
+        onClose={() => setIsGlobalSearchOpen(false)}
+        interventions={interventions || []}
+        users={users || []}
+        rooms={allRooms}
+        onSelectIntervention={(intervention) => {
+          setSelectedIntervention(intervention);
+          setIsGlobalSearchOpen(false);
+        }}
+        onSelectUser={(user) => {
+          handleEditUser(user);
+          setIsGlobalSearchOpen(false);
+        }}
+        onSelectRoom={(room) => {
+          setCurrentView('rooms');
+          setIsGlobalSearchOpen(false);
+        }}
+      />
+
       <ToastContainer toasts={toasts || []} onRemove={removeToast} />
     </div>
   );

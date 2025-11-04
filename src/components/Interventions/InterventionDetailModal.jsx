@@ -6,6 +6,7 @@ import {
   Loader2, Home, Lock, Unlock, Edit3, Save 
 } from 'lucide-react';
 import RoomBlockingModal from '../Rooms/RoomBlockingModal';
+import { useInterventionPermissions } from '../../hooks/useInterventionPermissions';
 
 // ✅ FONCTION HELPER POUR FORMATER LES TIMESTAMPS
 const formatTimestamp = (timestamp) => {
@@ -90,6 +91,7 @@ const InterventionDetailModal = ({
   blockedRooms = [],
   onAddLocation
 }) => {
+  const permissions = useInterventionPermissions(user, intervention);
   const [activeTab, setActiveTab] = useState('details');
   const [newMessage, setNewMessage] = useState('');
   const [newSupply, setNewSupply] = useState({ name: '', quantity: '', unit: 'pièce' });

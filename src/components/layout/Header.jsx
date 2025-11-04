@@ -5,14 +5,18 @@ import {
   ChevronDown, 
   User,
   LogOut,
-  ClipboardList
+  ClipboardList,
+  QrCode,        // ✨ NOUVEAU
+  FileText       // ✨ NOUVEAU
 } from 'lucide-react';
 
 const Header = ({ 
   currentView, 
   onMenuClick, 
   user,
-  onSettingsClick 
+  onOpenSettings,    // ✅ CORRIGÉ
+  onOpenQRCode,      
+  onOpenTemplates    
 }) => {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
@@ -56,9 +60,31 @@ const Header = ({
           </div>
 
           {/* Partie droite - Actions utilisateur */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {/* ✨ NOUVEAU: Bouton QR Code */}
+            {(user?.role === 'superadmin' || user?.role === 'manager' || user?.role === 'reception') && onOpenQRCode && (
+              <button
+                onClick={onOpenQRCode}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="QR Codes"
+              >
+                <QrCode size={20} className="text-gray-600 dark:text-gray-400" />
+              </button>
+            )}
+
+            {/* ✨ NOUVEAU: Bouton Templates */}
+            {(user?.role === 'superadmin' || user?.role === 'manager') && onOpenTemplates && (
+              <button
+                onClick={onOpenTemplates}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="Templates"
+              >
+                <FileText size={20} className="text-gray-600 dark:text-gray-400" />
+              </button>
+            )}
+
             <button
-              onClick={onSettingsClick}
+              onClick={onOpenSettings}
               className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
             >
               <Settings size={18} />

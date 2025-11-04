@@ -1,0 +1,443 @@
+// ===============================================
+// 🔐 FIREBASE STORAGE SECURITY RULES - GESTIHOTEL
+// ===============================================
+// Version: 2.0.0
+// Dernière mise à jour: 2025-11-04
+// 
+// ✅ Validation stricte des types de fichiers
+// ✅ Limitation des tailles
+// ✅ Permissions par rôle
+// ✅ Protection contre uploads malveillants
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ===============================================
+    // 🔧 FONCTIONS HELPER
+    // ===============================================
+    
+    /**
+     * Vérifier si l'utilisateur est authentifié
+     */
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    /**
+     * Vérifier si l'utilisateur est le propriétaire
+     */
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    /**
+     * Vérifier la taille du fichier (en bytes)
+     */
+    function isSizeValid(maxSize) {
+      return request.resource.size <= maxSize;
+    }
+    
+    /**
+     * Vérifier le type MIME du fichier
+     */
+    function isImageFile() {
+      return request.resource.contentType.matches('image/(jpeg|jpg|png|webp|gif)');
+    }
+    
+    /**
+     * Vérifier si c'est un fichier PDF
+     */
+    function isPDFFile() {
+      return request.resource.contentType == 'application/pdf';
+    }
+    
+    /**
+     * Vérifier si c'est un fichier Excel
+     */
+    function isExcelFile() {
+      return request.resource.contentType.matches('application/(vnd.ms-excel|vnd.openxmlformats-officedocument.spreadsheetml.sheet)');
+    }
+    
+    /**
+     * Vérifier si c'est un fichier Word
+     */
+    function isWordFile() {
+      return request.resource.contentType.matches('application/(msword|vnd.openxmlformats-officedocument.wordprocessingml.document)');
+    }
+    
+    /**
+     * Limites de taille prédéfinies
+     */
+    function maxImageSize() {
+      return 5 * 1024 * 1024; // 5 MB
+    }
+    
+    function maxAvatarSize() {
+      return 2 * 1024 * 1024; // 2 MB
+    }
+    
+    function maxDocumentSize() {
+      return 10 * 1024 * 1024; // 10 MB
+    }
+    
+    // ===============================================
+    // 📸 PHOTOS D'INTERVENTIONS
+    // ===============================================
+    
+    match /interventions/{interventionId}/{fileName} {
+      
+      // ✅ LECTURE: Tous les utilisateurs authentifiés
+      allow read: if isAuthenticated();
+      
+      // ✅ ÉCRITURE: Utilisateurs authentifiés avec validations
+      allow write: if isAuthenticated()
+                   && isImageFile()
+                   && isSizeValid(maxImageSize());
+      
+      // ✅ SUPPRESSION: Utilisateurs authentifiés
+      allow delete: if isAuthenticated();
+    }
+    
+    // ===============================================
+    // 👤 AVATARS UTILISATEURS
+    // ===============================================
+    
+    match /users/{userId}/avatar/{fileName} {
+      
+      // ✅ LECTURE: Public (pour affichage dans l'app)
+      allow read: if true;
+      
+      // ✅ ÉCRITURE: Propriétaire uniquement
+      allow write: if isOwner(userId)
+                   && isImageFile()
+                   && isSizeValid(maxAvatarSize());
+      
+      // ✅ SUPPRESSION: Propriétaire uniquement
+      allow delete: if isOwner(userId);
+    }
+    
+    // ===============================================
+    // 📄 DOCUMENTS / RAPPORTS
+    // ===============================================
+    
+    match /documents/{docType}/{fileName} {
+      
+      // ✅ LECTURE: Utilisateurs authentifiés
+      allow read: if isAuthenticated();
+      
+      // ✅ ÉCRITURE: Utilisateurs authentifiés
+      // Types autorisés: PDF, Excel, Word
+      allow write: if isAuthenticated()
+                   && (isPDFFile() || isExcelFile() || isWordFile())
+                   && isSizeValid(maxDocumentSize());
+      
+      // ✅ SUPPRESSION: Utilisateurs authentifiés
+      allow delete: if isAuthenticated();
+    }
+    
+    // ===============================================
+    // 📊 EXPORTS (temporaires)
+    // ===============================================
+    
+    match /exports/{userId}/{fileName} {
+      
+      // ✅ LECTURE: Propriétaire uniquement
+      allow read: if isOwner(userId);
+      
+      // ✅ ÉCRITURE: Propriétaire uniquement
+      // Types: Excel, CSV, PDF
+      allow write: if isOwner(userId)
+                   && (isExcelFile() 
+                       || isPDFFile() 
+                       || request.resource.contentType == 'text/csv')
+                   && isSizeValid(maxDocumentSize());
+      
+      // ✅ SUPPRESSION: Propriétaire uniquement
+      allow delete: if isOwner(userId);
+    }
+    
+    // ===============================================
+    // 🖼️ IMAGES PUBLIQUES (logos, assets)
+    // ===============================================
+    
+    match /public/{fileName} {
+      
+      // ✅ LECTURE: Public
+      allow read: if true;
+      
+      // ✅ ÉCRITURE: Authentifiés uniquement
+      allow write: if isAuthenticated()
+                   && isImageFile()
+                   && isSizeValid(maxImageSize());
+      
+      // ✅ SUPPRESSION: Authentifiés uniquement
+      allow delete: if isAuthenticated();
+    }
+    
+    // ===============================================
+    // 📝 SIGNATURES / FORMULAIRES
+    // ===============================================
+    
+    match /signatures/{interventionId}/{fileName} {
+      
+      // ✅ LECTURE: Utilisateurs authentifiés
+      allow read: if isAuthenticated();
+      
+      // ✅ ÉCRITURE: Utilisateurs authentifiés
+      // Signatures = images PNG
+      allow write: if isAuthenticated()
+                   && request.resource.contentType == 'image/png'
+                   && isSizeValid(1 * 1024 * 1024); // 1 MB max
+      
+      // ✅ SUPPRESSION: Utilisateurs authentifiés
+      allow delete: if isAuthenticated();
+    }
+    
+    // ===============================================
+    // 🔄 IMPORTS (fichiers Excel pour import de données)
+    // ===============================================
+    
+    match /imports/{userId}/{fileName} {
+      
+      // ✅ LECTURE: Propriétaire uniquement
+      allow read: if isOwner(userId);
+      
+      // ✅ ÉCRITURE: Propriétaire uniquement
+      allow write: if isOwner(userId)
+                   && isExcelFile()
+                   && isSizeValid(maxDocumentSize());
+      
+      // ✅ SUPPRESSION: Propriétaire uniquement
+      allow delete: if isOwner(userId);
+    }
+    
+    // ===============================================
+    // 💾 BACKUPS (système)
+    // ===============================================
+    
+    match /backups/{backupId}/{fileName} {
+      
+      // ✅ LECTURE: Authentifiés uniquement
+      allow read: if isAuthenticated();
+      
+      // ✅ ÉCRITURE: Via Cloud Functions uniquement
+      allow write: if false;
+      
+      // ✅ SUPPRESSION: Interdit (conservation)
+      allow delete: if false;
+    }
+    
+    // ===============================================
+    // 🎨 TEMPLATES / MODÈLES
+    // ===============================================
+    
+    match /templates/{templateType}/{fileName} {
+      
+      // ✅ LECTURE: Tous les utilisateurs authentifiés
+      allow read: if isAuthenticated();
+      
+      // ✅ ÉCRITURE: Authentifiés uniquement
+      allow write: if isAuthenticated()
+                   && (isPDFFile() || isExcelFile() || isWordFile())
+                   && isSizeValid(maxDocumentSize());
+      
+      // ✅ SUPPRESSION: Authentifiés uniquement
+      allow delete: if isAuthenticated();
+    }
+    
+    // ===============================================
+    // 📹 VIDÉOS (si support vidéo futur)
+    // ===============================================
+    
+    match /videos/{interventionId}/{fileName} {
+      
+      // ✅ LECTURE: Utilisateurs authentifiés
+      allow read: if isAuthenticated();
+      
+      // ✅ ÉCRITURE: Utilisateurs authentifiés
+      // Limité à 50 MB pour les vidéos
+      allow write: if isAuthenticated()
+                   && request.resource.contentType.matches('video/(mp4|webm|quicktime)')
+                   && isSizeValid(50 * 1024 * 1024);
+      
+      // ✅ SUPPRESSION: Utilisateurs authentifiés
+      allow delete: if isAuthenticated();
+    }
+    
+    // ===============================================
+    // 🗂️ FICHIERS TEMPORAIRES
+    // ===============================================
+    
+    match /temp/{userId}/{fileName} {
+      
+      // ✅ LECTURE: Propriétaire uniquement
+      allow read: if isOwner(userId);
+      
+      // ✅ ÉCRITURE: Propriétaire uniquement
+      // Tous types, mais limité en taille
+      allow write: if isOwner(userId)
+                   && isSizeValid(maxDocumentSize());
+      
+      // ✅ SUPPRESSION: Propriétaire uniquement
+      allow delete: if isOwner(userId);
+    }
+    
+    // ===============================================
+    // 🚫 RÈGLE PAR DÉFAUT
+    // ===============================================
+    
+    // ⛔ BLOQUER tout le reste par défaut
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+// ===============================================
+// 📚 DOCUMENTATION
+// ===============================================
+/*
+ * STRUCTURE DES DOSSIERS STORAGE:
+ * 
+ * /interventions/{id}/         - Photos d'interventions (5MB max, images uniquement)
+ * /users/{userId}/avatar/      - Avatars utilisateurs (2MB max, images)
+ * /documents/{type}/           - Documents divers (10MB max, PDF/Excel/Word)
+ * /exports/{userId}/           - Exports temporaires (10MB max, Excel/PDF/CSV)
+ * /public/                     - Assets publics (images)
+ * /signatures/{id}/            - Signatures électroniques (1MB max, PNG)
+ * /imports/{userId}/           - Imports Excel (10MB max)
+ * /backups/{id}/               - Backups système (lecture seule)
+ * /templates/{type}/           - Templates documents (10MB max)
+ * /videos/{id}/                - Vidéos (50MB max, mp4/webm)
+ * /temp/{userId}/              - Fichiers temporaires (10MB max)
+ * 
+ * TYPES MIME AUTORISÉS:
+ * 
+ * Images:
+ * - image/jpeg, image/jpg
+ * - image/png
+ * - image/webp
+ * - image/gif
+ * 
+ * Documents:
+ * - application/pdf
+ * - application/vnd.ms-excel
+ * - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * - application/msword
+ * - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+ * - text/csv
+ * 
+ * Vidéos:
+ * - video/mp4
+ * - video/webm
+ * - video/quicktime
+ * 
+ * LIMITES DE TAILLE:
+ * 
+ * - Avatars: 2 MB
+ * - Photos interventions: 5 MB
+ * - Documents: 10 MB
+ * - Vidéos: 50 MB
+ * - Signatures: 1 MB
+ */
+
+// ===============================================
+// 🔍 EXEMPLES D'UTILISATION
+// ===============================================
+/*
+ * UPLOAD PHOTO INTERVENTION:
+ * 
+ * const file = event.target.files[0];
+ * const storageRef = ref(storage, `interventions/${interventionId}/${Date.now()}_${file.name}`);
+ * await uploadBytes(storageRef, file);
+ * const url = await getDownloadURL(storageRef);
+ * 
+ * UPLOAD AVATAR:
+ * 
+ * const storageRef = ref(storage, `users/${userId}/avatar/profile.png`);
+ * await uploadBytes(storageRef, file);
+ * 
+ * UPLOAD EXPORT:
+ * 
+ * const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+ * const storageRef = ref(storage, `exports/${userId}/rapport_${Date.now()}.xlsx`);
+ * await uploadBytes(storageRef, blob);
+ * 
+ * SUPPRESSION:
+ * 
+ * const storageRef = ref(storage, filePath);
+ * await deleteObject(storageRef);
+ */
+
+// ===============================================
+// ⚠️ BONNES PRATIQUES
+// ===============================================
+/*
+ * SÉCURITÉ:
+ * 
+ * 1. ✅ Toujours valider les fichiers côté client AVANT upload
+ * 2. ✅ Utiliser des noms de fichiers uniques (timestamp + uuid)
+ * 3. ✅ Compresser les images avant upload (côté client)
+ * 4. ✅ Scanner les fichiers avec Cloud Functions après upload
+ * 5. ✅ Nettoyer les fichiers temporaires régulièrement
+ * 6. ⚠️ Ne jamais stocker de données sensibles dans les métadonnées
+ * 
+ * PERFORMANCE:
+ * 
+ * 1. ✅ Utiliser des thumbnails pour les images
+ * 2. ✅ Implémenter le lazy loading
+ * 3. ✅ Utiliser Firebase Storage avec CDN
+ * 4. ✅ Mettre en cache les URLs (valides 7 jours)
+ * 
+ * COÛTS:
+ * 
+ * 1. ✅ Limiter les tailles de fichiers
+ * 2. ✅ Implémenter lifecycle rules (suppression auto après X jours)
+ * 3. ✅ Compresser les fichiers
+ * 4. ✅ Nettoyer les fichiers orphelins
+ * 
+ * EXEMPLE CLOUD FUNCTION NETTOYAGE:
+ * 
+ * exports.cleanupOldExports = functions.pubsub
+ *   .schedule('every 24 hours')
+ *   .onRun(async () => {
+ *     const bucket = admin.storage().bucket();
+ *     const [files] = await bucket.getFiles({ prefix: 'exports/' });
+ *     
+ *     const now = Date.now();
+ *     const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 jours
+ *     
+ *     for (const file of files) {
+ *       const [metadata] = await file.getMetadata();
+ *       const created = new Date(metadata.timeCreated).getTime();
+ *       
+ *       if (now - created > maxAge) {
+ *         await file.delete();
+ *         console.log(`Deleted old file: ${file.name}`);
+ *       }
+ *     }
+ *   });
+ */
+
+// ===============================================
+// 🧪 TESTING
+// ===============================================
+/*
+ * TESTER LES RÈGLES:
+ * 
+ * 1. Firebase Console > Storage > Rules
+ * 2. Utiliser le simulateur de règles
+ * 3. Tester différents scénarios
+ * 
+ * DÉPLOIEMENT:
+ * 
+ * firebase deploy --only storage:rules
+ * 
+ * MONITORING:
+ * 
+ * 1. Firebase Console > Storage > Usage
+ * 2. Vérifier les erreurs "permission denied"
+ * 3. Monitorer la taille du bucket
+ * 4. Surveiller les coûts
+ */

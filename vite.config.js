@@ -8,32 +8,40 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.ico', 'robots.txt', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
         name: 'GestiHôtel',
         short_name: 'GestiHôtel',
-        description: 'Application de gestion d\'interventions hôtelières',
-        theme_color: '#4f46e5',
+        description: 'Application de gestion hôtelière',
+        theme_color: '#6366f1',
+        background_color: '#ffffff',
+        display: 'standalone',
         icons: [
-          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' }
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png'
+          }
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/i,
-            handler: 'StaleWhileRevalidate',
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
             options: {
-              cacheName: 'firebase-storage-cache',
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
-              cacheableResponse: { statuses: [0, 200] }
+              cacheName: 'google-fonts-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 }
             }
           },
           {
-            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
+            urlPattern: /\.(png|jpg|jpeg|svg|gif|webp)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'images-cache',
@@ -66,148 +74,139 @@ export default defineConfig({
       '@services': path.resolve(__dirname, './src/services'),
       '@utils': path.resolve(__dirname, './src/utils'),
       '@contexts': path.resolve(__dirname, './src/contexts'),
-      '@config': path.resolve(__dirname, './src/config'),
-      '@types': path.resolve(__dirname, './src/types')
+      '@config': path.resolve(__dirname, './src/config')
     }
   },
   
-  // ✅ CRITIQUE: Exclusion complète de Firebase de l'optimisation
+  // ✅ OPTIMISATION DES DÉPENDANCES
   optimizeDeps: {
-    include: [
-      'react',
-      'react-dom',
-      'react-router-dom'
-      // ✅ NE PAS inclure Firebase ici
-    ],
-    exclude: [
-      // ✅ EXCLURE TOUS les packages Firebase
-      'firebase',
-      'firebase/app',
-      'firebase/auth', 
-      'firebase/firestore',
-      'firebase/storage',
-      'firebase/functions',
-      'firebase/analytics',
-      'firebase/messaging',
-      'firebase/performance',
-      '@firebase/app',
-      '@firebase/auth',
-      '@firebase/firestore',
-      '@firebase/storage',
-      '@firebase/functions',
-      '@firebase/analytics',
-      '@firebase/messaging',
-      '@firebase/performance',
-      '@firebase/util',
-      '@firebase/component'
-    ],
+    entries: ['./src/main.jsx'],
+    include: ['react', 'react-dom', 'react-router-dom'],
+    exclude: [],
     esbuildOptions: {
-      target: 'esnext',
-      supported: { 'top-level-await': true }
-    }
+      target: 'esnext'
+    },
+    force: false
   },
   
+  // ✅ BUILD AVEC LAZY LOADING FONCTIONNEL
   build: {
     target: 'esnext',
     minify: 'terser',
-    
-    // ✅ CommonJS pour Firebase
-    commonjsOptions: {
-      include: [/firebase/, /node_modules/],
-      transformMixedEsModules: true
-    },
     
     terserOptions: {
       compress: {
         drop_console: false,
         drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info', 'console.debug'],
         passes: 1
       },
-      mangle: { safari10: true },
-      format: { comments: false }
+      format: {
+        comments: false
+      }
     },
     
     rollupOptions: {
       output: {
+        // ✅ FONCTION manualChunks INTELLIGENTE
         manualChunks(id) {
+          // 1. VENDORS (node_modules)
           if (id.includes('node_modules')) {
-            // React
+            // React TOUJOURS en premier
             if (id.includes('react') || id.includes('react-dom')) {
-              return 'react-vendor';
+              return 'vendor-react';
             }
+            
+            // React Router
             if (id.includes('react-router')) {
-              return 'router-vendor';
+              return 'vendor-router';
             }
             
-            // ✅ Firebase: UN SEUL CHUNK pour éviter les problèmes
+            // Firebase - UN SEUL CHUNK (CRITIQUE)
             if (id.includes('firebase') || id.includes('@firebase')) {
-              return 'firebase-vendor';
+              return 'vendor-firebase';
             }
             
-            // UI
-            if (id.includes('lucide-react')) return 'icons';
-            if (id.includes('framer-motion')) return 'animations';
-            if (id.includes('recharts')) return 'charts';
+            // UI Libraries
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('framer-motion')) return 'vendor-animation';
+            if (id.includes('recharts')) return 'vendor-charts';
             
-            // Export
-            if (id.includes('jspdf') || id.includes('jspdf-autotable')) {
-              return 'pdf-export';
-            }
-            if (id.includes('xlsx')) return 'excel-export';
-            
-            // QR
-            if (id.includes('qrcode') || id.includes('jsqr')) {
-              return 'qr-code';
+            // Export libs
+            if (id.includes('jspdf') || id.includes('xlsx')) {
+              return 'vendor-export';
             }
             
-            // Date
-            if (id.includes('date-fns')) return 'date-utils';
+            // Date utils
+            if (id.includes('date-fns')) return 'vendor-date';
             
-            return 'vendor';
+            // Autres vendors
+            return 'vendor-other';
           }
           
-          // Application chunks
-          if (id.includes('/components/Interventions/')) {
-            if (id.includes('InterventionsView')) return 'page-interventions';
-            if (id.includes('InterventionDetail')) return 'intervention-detail';
-            return 'interventions-components';
+          // 2. COMPOSANTS APPLICATIFS
+          // Ne PAS regrouper les lazy-loaded components ici !
+          // Laisser Vite créer automatiquement les chunks pour les dynamic imports
+          
+          // Contextes et hooks (chargés au démarrage)
+          if (id.includes('/src/contexts/') || id.includes('/src/hooks/')) {
+            return 'app-core';
           }
           
-          if (id.includes('/components/Dashboard/')) {
-            if (id.includes('AdvancedAnalytics')) return 'advanced-analytics';
-            return 'dashboard';
+          // Services
+          if (id.includes('/src/services/')) {
+            return 'app-services';
           }
-          if (id.includes('/components/Analytics/')) return 'analytics';
-          if (id.includes('/components/Admin/')) return 'admin';
-          if (id.includes('/components/Users/')) return 'users';
-          if (id.includes('/components/Planning/') || id.includes('Calendar')) return 'planning';
-          if (id.includes('/components/Settings/')) return 'settings';
-          if (id.includes('/components/Chat/')) return 'chat';
-          if (id.includes('/components/Templates/')) return 'templates';
-          if (id.includes('/components/Rooms/')) return 'rooms';
+          
+          // Utils
+          if (id.includes('/src/utils/')) {
+            return 'app-utils';
+          }
+          
+          // ⚠️ NE PAS mettre de règle pour /src/components/
+          // Vite va créer automatiquement des chunks pour chaque lazy import
         },
         
-        chunkFileNames: 'assets/js/[name]-[hash].js',
-        entryFileNames: 'assets/js/[name]-[hash].js',
+        // ✅ Nommage des chunks
+        chunkFileNames: (chunkInfo) => {
+          // Pour les chunks de vendors
+          if (chunkInfo.name.startsWith('vendor-')) {
+            return 'assets/[name]-[hash].js';
+          }
+          // Pour les chunks applicatifs
+          if (chunkInfo.name.startsWith('app-')) {
+            return 'assets/[name]-[hash].js';
+          }
+          // Pour les dynamic imports (lazy loading)
+          // Format lisible pour debug
+          return 'assets/[name]-[hash].js';
+        },
+        
+        entryFileNames: 'assets/[name]-[hash].js',
+        
         assetFileNames: (assetInfo) => {
           const info = assetInfo.name.split('.');
           const ext = info[info.length - 1];
           if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
-            return `assets/images/[name]-[hash][extname]`;
+            return 'assets/images/[name]-[hash][extname]';
           }
           if (/woff|woff2|ttf|otf/.test(ext)) {
-            return `assets/fonts/[name]-[hash][extname]`;
+            return 'assets/fonts/[name]-[hash][extname]';
           }
-          return `assets/[name]-[hash][extname]`;
+          return 'assets/[name]-[hash][extname]';
         }
       }
     },
     
-    chunkSizeWarningLimit: 1200, // Augmenté car Firebase sera dans un gros chunk
+    // Paramètres
+    chunkSizeWarningLimit: 1500,
     sourcemap: false,
     cssCodeSplit: true,
-    reportCompressedSize: true
+    reportCompressedSize: false,
+    
+    // ✅ CRITICAL: Assurer que les dynamic imports fonctionnent
+    dynamicImportVarsOptions: {
+      warnOnError: true
+    }
   },
   
   server: {
@@ -215,13 +214,8 @@ export default defineConfig({
     host: true,
     open: true,
     cors: true,
-    hmr: { overlay: true },
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5001',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      }
+    hmr: {
+      overlay: true
     }
   },
   
@@ -229,15 +223,5 @@ export default defineConfig({
     port: 4173,
     host: true,
     open: true
-  },
-  
-  esbuild: {
-    logOverride: { 'this-is-undefined-in-esm': 'silent' },
-    legalComments: 'none',
-    target: 'esnext'
-  },
-  
-  css: {
-    devSourcemap: true
   }
 });

@@ -31,36 +31,65 @@ console.log('✅ App initialisée');
 const auth = getAuth(app);
 console.log('✅ Auth initialisée');
 
-// ✅ Firestore avec la nouvelle API Firebase 12
-let db;
-try {
-  db = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
-  });
-  console.log('✅ Firestore initialisée (Firebase 12)');
-} catch (error) {
-  console.error('❌ Erreur Firestore:', error);
-  // Fallback sans cache
-  try {
-    db = initializeFirestore(app, {});
-    console.log('✅ Firestore initialisée (sans cache)');
-  } catch (err) {
-    throw new Error('Impossible d\'initialiser Firestore: ' + err.message);
-  }
-}
-
-// Storage et Functions
+// Storage
 const storage = getStorage(app);
+console.log('✅ Storage initialisée');
+
+// Functions
 const functions = getFunctions(app);
-console.log('✅ Storage et Functions initialisées');
+console.log('✅ Functions initialisées');
+
+// ✅ FIRESTORE: Import dynamique avec fallback
+let db = null;
+
+const initFirestore = async () => {
+  try {
+    // Essayer avec la nouvelle API
+    const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } = 
+      await import('firebase/firestore');
+    
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    });
+    console.log('✅ Firestore initialisée (avec cache)');
+    return db;
+  } catch (error) {
+    console.warn('⚠️ Erreur init avec cache:', error.message);
+    
+    // Fallback: sans cache
+    try {
+      const { getFirestore } = await import('firebase/firestore');
+      db = getFirestore(app);
+      console.log('✅ Firestore initialisée (sans cache)');
+      return db;
+    } catch (fallbackError) {
+      console.error('❌ Erreur Firestore complète:', fallbackError);
+      throw new Error('Impossible d\'initialiser Firestore: ' + fallbackError.message);
+    }
+  }
+};
+
+// Initialiser Firestore de manière asynchrone
+initFirestore().catch(err => {
+  console.error('❌ Init Firestore échouée:', err);
+});
+
+// ✅ Getter pour db (attend que l'init soit terminée)
+const getDb = () => {
+  if (!db) {
+    throw new Error('Firestore n\'est pas encore initialisée. Utilisez await initFirestore() d\'abord.');
+  }
+  return db;
+};
 
 // Export
-export { app, auth, db, storage, functions };
+export { app, auth, storage, functions, getDb, initFirestore };
+export { db }; // Pour compatibilité, mais préférer getDb()
 
 // ===================================
-// 📱 FCM (reste identique)
+// 📱 FCM
 // ===================================
 let messaging = null;
 const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY || null;
@@ -101,7 +130,7 @@ if (typeof window !== 'undefined') {
 export { messaging, vapidKey };
 
 // ===================================
-// 📊 Analytics (reste identique)
+// 📊 Analytics
 // ===================================
 let analytics = null;
 
@@ -140,7 +169,7 @@ export const logAnalyticsEvent = (eventName, eventParams = {}) => {
 };
 
 export const setAnalyticsUser = (userId, userProperties = {}) => {
-  if (window.__firebaseAnalytics?.setUserId && window.__firebaseAnalytics?.setUserProperties && analytics) {
+  if (window.__firebaseAnalytics?.setUserId && analytics) {
     try {
       window.__firebaseAnalytics.setUserId(analytics, userId);
       window.__firebaseAnalytics.setUserProperties(analytics, userProperties);
@@ -158,7 +187,6 @@ export const analyticsEvents = {
       room_type: data.roomType
     });
   },
-  
   interventionCompleted: (data) => {
     logAnalyticsEvent('intervention_completed', {
       intervention_id: data.id,
@@ -166,41 +194,30 @@ export const analyticsEvents = {
       priority: data.priority
     });
   },
-  
   interventionUpdated: (data) => {
     logAnalyticsEvent('intervention_updated', {
       intervention_id: data.id,
       status: data.status
     });
   },
-
   userLogin: (role) => {
-    logAnalyticsEvent('login', { 
-      method: 'email',
-      user_role: role 
-    });
+    logAnalyticsEvent('login', { method: 'email', user_role: role });
   },
-  
   userCreated: (role) => {
-    logAnalyticsEvent('user_created', { 
-      user_role: role 
-    });
+    logAnalyticsEvent('user_created', { user_role: role });
   },
-
   pageView: (pageName) => {
     logAnalyticsEvent('page_view', { 
       page_name: pageName,
       page_path: typeof window !== 'undefined' ? window.location.pathname : ''
     });
   },
-
   search: (searchTerm, resultCount) => {
     logAnalyticsEvent('search', {
       search_term: searchTerm,
       result_count: resultCount
     });
   },
-
   error: (errorType, errorMessage) => {
     logAnalyticsEvent('error', {
       error_type: errorType,
@@ -210,7 +227,7 @@ export const analyticsEvents = {
 };
 
 // ===================================
-// 🔍 Performance (reste identique)
+// 🔍 Performance
 // ===================================
 let performance = null;
 

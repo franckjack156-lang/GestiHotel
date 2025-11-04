@@ -135,6 +135,83 @@ exports.updateUserPassword = onCall({
 });
 
 /**
+ * ✅ NOUVEAU: Supprimer un utilisateur (Auth + Firestore)
+ */
+exports.deleteUser = onCall({
+  timeoutSeconds: 60,
+  memory: '256MiB',
+}, async (request) => {
+  // Vérifier que l'utilisateur est authentifié et est Super Admin
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Vous devez être connecté');
+  }
+
+  const callerUid = request.auth.uid;
+  const callerDoc = await admin.firestore().collection('users').doc(callerUid).get();
+  
+  if (!callerDoc.exists || callerDoc.data().role !== 'superadmin') {
+    throw new HttpsError('permission-denied', 'Seul un Super Admin peut supprimer des utilisateurs');
+  }
+
+  const { userId } = request.data;
+  
+  if (!userId) {
+    throw new HttpsError('invalid-argument', 'ID utilisateur obligatoire');
+  }
+
+  // Ne pas permettre l'auto-suppression
+  if (userId === callerUid) {
+    throw new HttpsError('invalid-argument', 'Vous ne pouvez pas vous supprimer vous-même');
+  }
+
+  try {
+    // 1. Récupérer les données utilisateur avant suppression (pour le log)
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userData = userDoc.exists ? userDoc.data() : null;
+
+    // 2. Supprimer de Firebase Auth
+    await admin.auth().deleteUser(userId);
+    
+    // 3. Supprimer le document Firestore
+    await admin.firestore().collection('users').doc(userId).delete();
+    
+    // 4. Si l'utilisateur était lié à un technicien, supprimer le lien
+    if (userData && userData.linkedTechnicianId) {
+      await admin.firestore().collection('adminData').doc(userData.linkedTechnicianId).update({
+        linkedUserId: null,
+        linkedUserName: null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    
+    // 5. Log de l'action dans une collection d'audit
+    await admin.firestore().collection('auditLogs').add({
+      action: 'USER_DELETED',
+      targetUserId: userId,
+      targetUserEmail: userData ? userData.email : 'unknown',
+      targetUserName: userData ? userData.name : 'unknown',
+      performedBy: callerUid,
+      timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`User ${userId} deleted by ${callerUid}`);
+
+    return {
+      success: true,
+      message: 'Utilisateur supprimé avec succès'
+    };
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    
+    if (error.code === 'auth/user-not-found') {
+      throw new HttpsError('not-found', 'Utilisateur non trouvé dans Firebase Auth');
+    }
+    
+    throw new HttpsError('internal', 'Erreur lors de la suppression: ' + error.message);
+  }
+});
+
+/**
  * Fonction déclenchée quand une intervention est créée
  * Envoie des notifications
  */

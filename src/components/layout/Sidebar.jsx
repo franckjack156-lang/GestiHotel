@@ -11,15 +11,20 @@ import {
   X,
   Calendar,
   FileSpreadsheet,
-  Building2, 
+  Building2,
+  QrCode,        // ✨ NOUVEAU
+  FileText       // ✨ NOUVEAU
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../hooks/useSettings';
+
 const Sidebar = ({ 
   currentView, 
   onViewChange, 
   onClose,
-  isMobile = false 
+  isMobile = false,
+  onOpenQRCode,      // ✨ NOUVEAU
+  onOpenTemplates    // ✨ NOUVEAU
 }) => {
   const { user, logout } = useAuth();
   const { settings, updateSettings } = useSettings(user);
@@ -34,6 +39,8 @@ const Sidebar = ({
     { id: 'rooms', label: 'Chambres', icon: Building2, roles: ['reception', 'manager', 'superadmin']},
     { id: 'planning', label: 'Planning', icon: Calendar, roles: ['manager', 'superadmin'] },
     { id: 'analytics', label: 'Analytics', icon: BarChart, roles: ['manager', 'superadmin'] },
+    { id: 'qr-codes', label: 'QR Codes', icon: QrCode, roles: ['superadmin', 'manager', 'reception'] },      // ✨ NOUVEAU
+    { id: 'templates', label: 'Templates', icon: FileText, roles: ['superadmin', 'manager'] },                // ✨ NOUVEAU
     { id: 'users', label: 'Gestion utilisateurs', icon: Users, roles: ['superadmin'] },
     { id: 'data-management', label: 'Données de référence', icon: Settings, roles: ['superadmin'] },
     { id: 'excel-import', label: 'Import Excel', icon: FileSpreadsheet, roles: ['superadmin'] }
@@ -44,7 +51,20 @@ const Sidebar = ({
   );
 
   const handleItemClick = (itemId) => {
+    // ✨ NOUVEAU: Gérer les clics sur QR Codes et Templates
+    if (itemId === 'qr-codes') {
+      onOpenQRCode?.();
+      if (isMobile) onClose();
+      return;
+    } else if (itemId === 'templates') {
+      onOpenTemplates?.();
+      if (isMobile) onClose();
+      return;
+    }
+    
+    // Comportement normal pour les autres items
     onViewChange(itemId);
+    if (isMobile) onClose();
   };
 
   const toggleSidebar = () => {

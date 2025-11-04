@@ -1,3 +1,14 @@
+// ===============================================
+// 🔐 FIRESTORE SECURITY RULES - GESTIHOTEL
+// ===============================================
+// Version: 2.0.0
+// Dernière mise à jour: 2025-11-04
+// 
+// ✅ Sécurité renforcée par rôle
+// ✅ Validation des schémas
+// ✅ Protection contre les escalades de privilèges
+// ✅ Audit trails
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
