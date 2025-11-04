@@ -1,4 +1,4 @@
-// src/components/Admin/AdminPanel.jsx - VERSION ULTRA-SIMPLE
+// src/components/Admin/AdminPanel.jsx - VERSION COMPLÈTE AVEC MULTI-ÉTABLISSEMENTS
 import React, { useState } from 'react';
 import { 
   X, 
@@ -11,93 +11,29 @@ import {
   Sliders
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import EstablishmentsManagement from './EstablishmentsManagement';
+import UsersManagementView from '../Users/UsersManagementView';
+import UnifiedAdminModal from './UnifiedAdminModal';
 
-// Pour l'instant, on affiche juste des placeholders
-// Tu pourras les remplacer par les vrais composants plus tard
-
-const EstablishmentsTab = () => (
-  <div className="p-8">
-    <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
-      Gestion des Établissements
-    </h3>
-    <p className="text-gray-600 dark:text-gray-400 mb-4">
-      Interface de gestion des établissements à venir...
-    </p>
-    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-      <p className="text-sm text-yellow-800 dark:text-yellow-200">
-        💡 <strong>Pour activer cette fonctionnalité:</strong>
-      </p>
-      <ol className="text-sm text-yellow-700 dark:text-yellow-300 mt-2 ml-4 list-decimal">
-        <li>Vérifier que EstablishmentsManagement.jsx existe dans src/components/Admin/</li>
-        <li>Vérifier que establishmentService.js existe dans src/services/</li>
-        <li>Remplacer ce placeholder par le vrai composant</li>
-      </ol>
-    </div>
-  </div>
-);
-
-const UsersTab = () => (
-  <div className="p-8">
-    <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
-      Gestion des Utilisateurs
-    </h3>
-    <p className="text-gray-600 dark:text-gray-400 mb-4">
-      Utilisez la vue "Utilisateurs" dans la navigation principale pour gérer les utilisateurs.
-    </p>
-    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-      <p className="text-sm text-blue-800 dark:text-blue-200">
-        ℹ️ La gestion des utilisateurs est déjà disponible dans le menu principal.
-      </p>
-    </div>
-  </div>
-);
-
-const DataTab = () => (
-  <div className="p-8">
-    <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
-      Données de référence
-    </h3>
-    <p className="text-gray-600 dark:text-gray-400 mb-4">
-      Utilisez le bouton "Options Admin" dans l'ancienne interface pour gérer les données de référence.
-    </p>
-    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-      <p className="text-sm text-blue-800 dark:text-blue-200">
-        ℹ️ Cette fonctionnalité utilise le composant UnifiedAdminModal existant.
-      </p>
-    </div>
-  </div>
-);
-
-const ExcelTab = () => (
-  <div className="p-8">
-    <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
-      Import Excel
-    </h3>
-    <p className="text-gray-600 dark:text-gray-400 mb-4">
-      Utilisez la vue "Import Excel" dans la navigation principale.
-    </p>
-    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-      <p className="text-sm text-blue-800 dark:text-blue-200">
-        ℹ️ L'import Excel est déjà disponible dans le menu principal pour les superadmins.
-      </p>
-    </div>
-  </div>
-);
-
-const SettingsTab = () => (
-  <div className="p-8">
-    <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
-      Paramètres Globaux
-    </h3>
-    <p className="text-gray-600 dark:text-gray-400">
-      Configuration système à venir...
-    </p>
-  </div>
-);
-
-const AdminPanel = ({ isOpen, onClose }) => {
+const AdminPanel = ({ 
+  isOpen, 
+  onClose,
+  users = [],
+  onUpdateUser,
+  onAddUser,
+  onDeleteUser,
+  onActivateUser,
+  onResetPassword,
+  data,
+  dataLoading,
+  onAddItem,
+  onUpdateItem,
+  onDeleteItem,
+  onToggleActive
+}) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('establishments');
+  const [showAdminData, setShowAdminData] = useState(false);
 
   if (!isOpen) return null;
 
@@ -125,20 +61,6 @@ const AdminPanel = ({ isOpen, onClose }) => {
       icon: Database, 
       roles: ['superadmin', 'manager'],
       description: 'Listes déroulantes, techniciens, fournisseurs'
-    },
-    { 
-      id: 'excel', 
-      label: 'Import Excel', 
-      icon: FileSpreadsheet, 
-      roles: ['superadmin'],
-      description: 'Importer des données via Excel'
-    },
-    { 
-      id: 'settings', 
-      label: 'Paramètres globaux', 
-      icon: Sliders, 
-      roles: ['superadmin'],
-      description: 'Configuration avancée du système'
     }
   ];
 
@@ -147,15 +69,57 @@ const AdminPanel = ({ isOpen, onClose }) => {
   const renderContent = () => {
     switch (activeTab) {
       case 'establishments':
-        return <EstablishmentsTab />;
+        return <EstablishmentsManagement />;
+      
       case 'users':
-        return <UsersTab />;
+        return (
+          <div className="p-8">
+            <UsersManagementView
+              users={users}
+              currentUser={user}
+              onUpdateUser={onUpdateUser}
+              onAddUser={onAddUser}
+              onDeleteUser={onDeleteUser}
+              onActivateUser={onActivateUser}
+              onResetPassword={onResetPassword}
+            />
+          </div>
+        );
+      
       case 'data':
-        return <DataTab />;
-      case 'excel':
-        return <ExcelTab />;
-      case 'settings':
-        return <SettingsTab />;
+        return (
+          <div className="p-8">
+            <div className="mb-6">
+              <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">
+                Données de référence
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400">
+                Gérez les listes déroulantes, techniciens, fournisseurs et équipements
+              </p>
+            </div>
+            <button
+              onClick={() => setShowAdminData(true)}
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition"
+            >
+              Ouvrir la gestion des données
+            </button>
+
+            {showAdminData && (
+              <UnifiedAdminModal
+                isOpen={showAdminData}
+                onClose={() => setShowAdminData(false)}
+                data={data}
+                loading={dataLoading}
+                onAddItem={onAddItem}
+                onUpdateItem={onUpdateItem}
+                onDeleteItem={onDeleteItem}
+                onToggleActive={onToggleActive}
+                user={user}
+              />
+            )}
+          </div>
+        );
+      
       default:
         return (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
@@ -166,11 +130,11 @@ const AdminPanel = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
               <Shield className="text-indigo-600 dark:text-indigo-400" size={24} />
@@ -188,15 +152,15 @@ const AdminPanel = ({ isOpen, onClose }) => {
             onClick={onClose}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
           >
-            <X size={24} />
+            <X size={24} className="text-gray-600 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Content with sidebar */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden min-h-0">
           
           {/* Sidebar */}
-          <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4 overflow-y-auto">
+          <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4 overflow-y-auto flex-shrink-0">
             <div className="space-y-2">
               {filteredTabs.map(tab => {
                 const Icon = tab.icon;

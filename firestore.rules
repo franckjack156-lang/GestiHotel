@@ -2,492 +2,246 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ===============================================
-    // 🔧 FONCTIONS HELPER
-    // ===============================================
+    // ==================== FONCTIONS HELPER ====================
     
-    /**
-     * Vérifier si l'utilisateur est authentifié
-     */
     function isAuthenticated() {
       return request.auth != null;
     }
     
-    /**
-     * Vérifier si l'utilisateur est le propriétaire
-     */
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
     
-    /**
-     * Récupérer les données utilisateur courantes
-     */
     function getUserData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
     
-    /**
-     * Vérifier si l'utilisateur est actif
-     */
     function isActive() {
-      return isAuthenticated() 
-             && getUserData().active == true;
+      return isAuthenticated() && getUserData().active == true;
     }
     
-    /**
-     * Vérifier le rôle de l'utilisateur
-     */
     function hasRole(role) {
-      return isActive() 
-             && getUserData().role == role;
+      return isActive() && getUserData().role == role;
     }
     
-    /**
-     * Vérifier si l'utilisateur a un des rôles
-     */
     function hasAnyRole(roles) {
-      return isActive() 
-             && getUserData().role in roles;
+      return isActive() && getUserData().role in roles;
     }
     
-    /**
-     * Vérifier si Super Admin
-     */
     function isSuperAdmin() {
       return hasRole('superadmin');
     }
     
-    /**
-     * Vérifier si Manager ou Super Admin
-     */
     function isManagerOrAbove() {
       return hasAnyRole(['manager', 'superadmin']);
     }
     
-    /**
-     * Vérifier si l'utilisateur peut gérer les utilisateurs
-     */
     function canManageUsers() {
       return isSuperAdmin();
     }
     
-    /**
-     * Vérifier si l'intervention est assignée à l'utilisateur
-     */
+    // NOUVEAU: Accès multi-établissements
+    function hasEstablishmentAccess(establishmentId) {
+      return isAuthenticated() 
+             && (isSuperAdmin() 
+                 || (getUserData().keys().hasAll(['establishmentIds']) 
+                     && establishmentId in getUserData().establishmentIds));
+    }
+    
     function isAssignedTo(interventionId) {
       return isActive() 
              && get(/databases/$(database)/documents/interventions/$(interventionId)).data.assignedTo == request.auth.uid;
     }
     
-    /**
-     * Vérifier si l'utilisateur a créé l'intervention
-     */
     function isCreator(interventionId) {
       return isActive()
              && get(/databases/$(database)/documents/interventions/$(interventionId)).data.createdBy == request.auth.uid;
     }
     
-    /**
-     * Validation des champs requis
-     */
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
     }
     
-    /**
-     * Vérifier qu'aucun champ n'a été supprimé
-     */
     function noFieldsRemoved() {
       return request.resource.data.keys().hasAll(resource.data.keys());
     }
     
-    /**
-     * Vérifier que certains champs n'ont pas changé
-     */
     function fieldsUnchanged(fields) {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
     }
     
-    // ===============================================
-    // 👥 COLLECTION: USERS
-    // ===============================================
+    // ==================== ESTABLISHMENTS ====================
+    
+    match /establishments/{establishmentId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || hasEstablishmentAccess(establishmentId));
+      allow create: if isSuperAdmin() && hasRequiredFields(['name', 'active', 'features', 'createdAt', 'createdBy']);
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+      allow create, update: if request.resource.data.name is string 
+                            && request.resource.data.active is bool 
+                            && request.resource.data.features is map;
+    }
+    
+    // ==================== USERS ====================
     
     match /users/{userId} {
-      
-      // ✅ LECTURE: Tous les utilisateurs authentifiés
       allow read: if isAuthenticated();
-      
-      // ✅ CRÉATION: Super Admin uniquement
-      allow create: if isSuperAdmin()
-                    && hasRequiredFields(['email', 'role', 'name', 'active', 'createdAt', 'createdBy']);
-      
-      // ✅ MISE À JOUR: 
-      // - Propriétaire peut modifier ses propres infos (sauf rôle)
-      // - Super Admin peut tout modifier
-      allow update: if (isOwner(userId) && fieldsUnchanged(['role', 'active', 'email']))
+      allow create: if isSuperAdmin() 
+                    && hasRequiredFields(['email', 'role', 'name', 'active', 'establishmentIds', 'createdAt', 'createdBy']);
+      allow update: if (isOwner(userId) && fieldsUnchanged(['role', 'active', 'email', 'establishmentIds'])) 
                     || isSuperAdmin();
-      
-      // ✅ SUPPRESSION: Super Admin uniquement
       allow delete: if isSuperAdmin();
-      
-      // 🔒 Validation du schéma user
       allow create, update: if request.resource.data.role in ['superadmin', 'manager', 'reception', 'technician']
                             && request.resource.data.active is bool
                             && request.resource.data.email is string
-                            && request.resource.data.name is string;
+                            && request.resource.data.name is string
+                            && request.resource.data.establishmentIds is list;
     }
     
-    // ===============================================
-    // 🔧 COLLECTION: INTERVENTIONS
-    // ===============================================
+    // ==================== INTERVENTIONS ====================
     
     match /interventions/{interventionId} {
-      
-      // ✅ LECTURE: Tous les utilisateurs actifs
-      allow read: if isActive();
-      
-      // ✅ CRÉATION: Tous les utilisateurs actifs
+      allow read: if isActive() && hasEstablishmentAccess(resource.data.establishmentId);
       allow create: if isActive()
-                    && hasRequiredFields(['missionSummary', 'status', 'createdAt', 'createdBy', 'createdByName'])
-                    && request.resource.data.createdBy == request.auth.uid;
-      
-      // ✅ MISE À JOUR:
-      // - Manager et SuperAdmin: Tout
-      // - Technicien assigné: Ses interventions
-      // - Réception/Créateur: Tant que pas assignée
-      allow update: if isManagerOrAbove()
-                    || (isAssignedTo(interventionId) && hasRole('technician'))
-                    || (isCreator(interventionId) && hasRole('reception'));
-      
-      // ✅ SUPPRESSION: Super Admin uniquement
-      allow delete: if isSuperAdmin();
-      
-      // 🔒 Validation du schéma intervention
+                    && hasRequiredFields(['missionSummary', 'status', 'establishmentId', 'createdAt', 'createdBy', 'createdByName'])
+                    && request.resource.data.createdBy == request.auth.uid
+                    && hasEstablishmentAccess(request.resource.data.establishmentId);
+      allow update: if hasEstablishmentAccess(resource.data.establishmentId)
+                    && (isManagerOrAbove() 
+                        || (isAssignedTo(interventionId) && hasRole('technician'))
+                        || (isCreator(interventionId) && hasRole('reception')));
+      allow delete: if isSuperAdmin() && hasEstablishmentAccess(resource.data.establishmentId);
       allow create, update: if request.resource.data.status in ['todo', 'inprogress', 'completed', 'cancelled', 'onhold']
                             && (request.resource.data.priority == null || request.resource.data.priority in ['urgent', 'high', 'normal', 'low'])
                             && request.resource.data.missionSummary is string
                             && request.resource.data.missionSummary.size() > 0
-                            && request.resource.data.missionSummary.size() <= 500;
-      
-      // 🔒 Empêcher modification de certains champs système
-      allow update: if fieldsUnchanged(['createdAt', 'createdBy', 'createdByName', 'id']);
+                            && request.resource.data.missionSummary.size() <= 500
+                            && request.resource.data.establishmentId is string;
+      allow update: if fieldsUnchanged(['createdAt', 'createdBy', 'createdByName', 'id', 'establishmentId']);
     }
     
-    // ===============================================
-    // 📋 COLLECTION: DROPDOWN OPTIONS
-    // ===============================================
+    // ==================== DROPDOWN OPTIONS ====================
     
     match /dropdownOptions/{optionId} {
-      
-      // ✅ LECTURE: Tous les utilisateurs authentifiés
-      allow read: if isAuthenticated();
-      
-      // ✅ ÉCRITURE: Manager et Super Admin
-      allow create, update: if isManagerOrAbove()
-                            && hasRequiredFields(['category', 'value', 'active', 'createdAt', 'createdBy']);
-      
-      // ✅ SUPPRESSION: Super Admin uniquement
-      allow delete: if isSuperAdmin();
-      
-      // 🔒 Validation catégories autorisées
+      allow read: if isAuthenticated() && hasEstablishmentAccess(resource.data.establishmentId);
+      allow create: if isManagerOrAbove()
+                    && hasRequiredFields(['category', 'value', 'active', 'establishmentId', 'createdAt', 'createdBy'])
+                    && hasEstablishmentAccess(request.resource.data.establishmentId);
+      allow update: if isManagerOrAbove() 
+                    && hasEstablishmentAccess(resource.data.establishmentId) 
+                    && fieldsUnchanged(['establishmentId']);
+      allow delete: if isSuperAdmin() && hasEstablishmentAccess(resource.data.establishmentId);
       allow create, update: if request.resource.data.category in [
-        'roomTypes',
-        'locations', 
-        'missionTypes',
-        'interventionTypes',
-        'priorities',
-        'departments',
-        'creators'
-      ];
+                              'roomTypes', 'locations', 'missionTypes', 'interventionTypes', 
+                              'priorities', 'departments', 'creators'
+                            ] && request.resource.data.establishmentId is string;
     }
     
-    // ===============================================
-    // 🏢 COLLECTION: ADMIN DATA
-    // ===============================================
+    // ==================== ADMIN DATA ====================
     
     match /adminData/{dataId} {
-      
-      // ✅ LECTURE: Tous les utilisateurs authentifiés
-      allow read: if isAuthenticated();
-      
-      // ✅ ÉCRITURE: Manager et Super Admin
-      allow create, update: if isManagerOrAbove()
-                            && hasRequiredFields(['type', 'active', 'createdAt', 'createdBy']);
-      
-      // ✅ SUPPRESSION: Super Admin uniquement
-      allow delete: if isSuperAdmin();
-      
-      // 🔒 Validation types autorisés
-      allow create, update: if request.resource.data.type in [
-        'technicians',
-        'suppliers',
-        'equipment'
-      ];
+      allow read: if isAuthenticated() && hasEstablishmentAccess(resource.data.establishmentId);
+      allow create: if isManagerOrAbove()
+                    && hasRequiredFields(['type', 'active', 'establishmentId', 'createdAt', 'createdBy'])
+                    && hasEstablishmentAccess(request.resource.data.establishmentId);
+      allow update: if isManagerOrAbove() 
+                    && hasEstablishmentAccess(resource.data.establishmentId) 
+                    && fieldsUnchanged(['establishmentId']);
+      allow delete: if isSuperAdmin() && hasEstablishmentAccess(resource.data.establishmentId);
+      allow create, update: if request.resource.data.type in ['technicians', 'suppliers', 'equipment']
+                            && request.resource.data.establishmentId is string;
     }
     
-    // ===============================================
-    // 🚫 COLLECTION: BLOCKED ROOMS
-    // ===============================================
+    // ==================== BLOCKED ROOMS ====================
     
     match /blockedRooms/{roomId} {
-      
-      // ✅ LECTURE: Tous les utilisateurs authentifiés
-      allow read: if isAuthenticated();
-      
-      // ✅ CRÉATION: Reception, Manager, Super Admin
+      allow read: if isAuthenticated() && hasEstablishmentAccess(resource.data.establishmentId);
       allow create: if hasAnyRole(['reception', 'manager', 'superadmin'])
-                    && hasRequiredFields(['roomNumber', 'blocked', 'blockedAt', 'blockedBy', 'blockedByName']);
-      
-      // ✅ MISE À JOUR: Reception, Manager, Super Admin
-      allow update: if hasAnyRole(['reception', 'manager', 'superadmin']);
-      
-      // ✅ SUPPRESSION: Manager et Super Admin
-      allow delete: if isManagerOrAbove();
-      
-      // 🔒 Validation schéma
+                    && hasRequiredFields(['roomNumber', 'blocked', 'establishmentId', 'blockedAt', 'blockedBy', 'blockedByName'])
+                    && hasEstablishmentAccess(request.resource.data.establishmentId);
+      allow update: if hasAnyRole(['reception', 'manager', 'superadmin']) 
+                    && hasEstablishmentAccess(resource.data.establishmentId) 
+                    && fieldsUnchanged(['establishmentId']);
+      allow delete: if isManagerOrAbove() && hasEstablishmentAccess(resource.data.establishmentId);
       allow create, update: if request.resource.data.blocked is bool
-                            && request.resource.data.roomNumber is string;
+                            && request.resource.data.roomNumber is string
+                            && request.resource.data.establishmentId is string;
     }
     
-    // ===============================================
-    // 💬 COLLECTION: MESSAGES (sous-collection)
-    // ===============================================
+    // ==================== MESSAGES ====================
     
     match /interventions/{interventionId}/messages/{messageId} {
-      
-      // ✅ LECTURE: Utilisateurs actifs
-      allow read: if isActive();
-      
-      // ✅ CRÉATION: Utilisateurs actifs
+      allow read: if isActive() 
+                  && hasEstablishmentAccess(get(/databases/$(database)/documents/interventions/$(interventionId)).data.establishmentId);
       allow create: if isActive()
                     && hasRequiredFields(['text', 'senderId', 'senderName', 'timestamp'])
-                    && request.resource.data.senderId == request.auth.uid;
-      
-      // ✅ MISE À JOUR: Propriétaire du message uniquement
+                    && request.resource.data.senderId == request.auth.uid
+                    && hasEstablishmentAccess(get(/databases/$(database)/documents/interventions/$(interventionId)).data.establishmentId);
       allow update: if isActive()
-                    && resource.data.senderId == request.auth.uid;
-      
-      // ✅ SUPPRESSION: Propriétaire ou Super Admin
-      allow delete: if isSuperAdmin()
-                    || (isActive() && resource.data.senderId == request.auth.uid);
-      
-      // 🔒 Validation message
+                    && resource.data.senderId == request.auth.uid
+                    && hasEstablishmentAccess(get(/databases/$(database)/documents/interventions/$(interventionId)).data.establishmentId);
+      allow delete: if hasEstablishmentAccess(get(/databases/$(database)/documents/interventions/$(interventionId)).data.establishmentId)
+                    && (isSuperAdmin() || (isActive() && resource.data.senderId == request.auth.uid));
       allow create, update: if request.resource.data.text is string
                             && request.resource.data.text.size() > 0
                             && request.resource.data.text.size() <= 5000;
     }
     
-    // ===============================================
-    // 📊 COLLECTION: ANALYTICS (lecture seule)
-    // ===============================================
+    // ==================== ANALYTICS ====================
     
     match /analytics/{docId} {
-      
-      // ✅ LECTURE: Manager et Super Admin
       allow read: if isManagerOrAbove();
-      
-      // ✅ ÉCRITURE: Uniquement via Cloud Functions
       allow write: if false;
     }
     
-    // ===============================================
-    // 📝 COLLECTION: AUDIT LOGS
-    // ===============================================
+    // ==================== AUDIT LOGS ====================
     
     match /auditLogs/{logId} {
-      
-      // ✅ LECTURE: Super Admin uniquement
       allow read: if isSuperAdmin();
-      
-      // ✅ CRÉATION: Via Cloud Functions uniquement
       allow create: if false;
-      
-      // ✅ PAS DE MODIFICATION/SUPPRESSION
       allow update, delete: if false;
     }
     
-    // ===============================================
-    // ⚙️ COLLECTION: SETTINGS
-    // ===============================================
+    // ==================== USER SETTINGS ====================
     
-    match /settings/{userId} {
-      
-      // ✅ LECTURE: Propriétaire uniquement
+    match /userSettings/{userId} {
       allow read: if isOwner(userId);
-      
-      // ✅ ÉCRITURE: Propriétaire uniquement
       allow create, update: if isOwner(userId);
-      
-      // ✅ SUPPRESSION: Propriétaire uniquement
       allow delete: if isOwner(userId);
     }
     
-    // ===============================================
-    // 🔔 COLLECTION: NOTIFICATIONS
-    // ===============================================
+    // ==================== NOTIFICATIONS ====================
     
     match /notifications/{notificationId} {
-      
-      // ✅ LECTURE: Destinataire uniquement
-      allow read: if isAuthenticated()
-                  && resource.data.userId == request.auth.uid;
-      
-      // ✅ CRÉATION: Via Cloud Functions
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow create: if false;
-      
-      // ✅ MISE À JOUR: Destinataire (pour marquer comme lu)
-      allow update: if isAuthenticated()
-                    && resource.data.userId == request.auth.uid
+      allow update: if isAuthenticated() 
+                    && resource.data.userId == request.auth.uid 
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
-      
-      // ✅ SUPPRESSION: Destinataire
-      allow delete: if isAuthenticated()
-                    && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
     
-    // ===============================================
-    // 🗂️ COLLECTION: TEMPLATES
-    // ===============================================
+    // ==================== TEMPLATES ====================
     
     match /templates/{templateId} {
-      
-      // ✅ LECTURE: Tous les utilisateurs actifs
       allow read: if isActive();
-      
-      // ✅ ÉCRITURE: Manager et Super Admin
       allow create, update: if isManagerOrAbove();
-      
-      // ✅ SUPPRESSION: Super Admin uniquement
       allow delete: if isSuperAdmin();
     }
     
-    // ===============================================
-    // 📱 COLLECTION: FCM TOKENS (notifications push)
-    // ===============================================
+    // ==================== FCM TOKENS ====================
     
     match /fcmTokens/{tokenId} {
-      
-      // ✅ LECTURE: Propriétaire uniquement
-      allow read: if isAuthenticated()
-                  && resource.data.userId == request.auth.uid;
-      
-      // ✅ CRÉATION: Utilisateur pour son propre token
-      allow create: if isAuthenticated()
-                    && request.resource.data.userId == request.auth.uid;
-      
-      // ✅ MISE À JOUR: Propriétaire
-      allow update: if isAuthenticated()
-                    && resource.data.userId == request.auth.uid;
-      
-      // ✅ SUPPRESSION: Propriétaire
-      allow delete: if isAuthenticated()
-                    && resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
     
-    // ===============================================
-    // 🚫 RÈGLE PAR DÉFAUT
-    // ===============================================
+    // ==================== RÈGLE PAR DÉFAUT ====================
     
-    // ⛔ BLOQUER tout le reste par défaut
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
-// ===============================================
-// 📚 DOCUMENTATION DES RÔLES
-// ===============================================
-/*
- * HIÉRARCHIE DES RÔLES:
- * 
- * 1. superadmin (Super Administrateur)
- *    - Accès total à toutes les ressources
- *    - Peut créer/modifier/supprimer des utilisateurs
- *    - Peut supprimer des interventions
- *    - Accès aux audit logs
- * 
- * 2. manager (Gestionnaire)
- *    - Peut gérer toutes les interventions
- *    - Peut gérer les options admin (dropdowns, data)
- *    - Peut bloquer/débloquer des chambres
- *    - Accès aux analytics
- *    - Ne peut PAS gérer les utilisateurs
- * 
- * 3. reception (Réception)
- *    - Peut créer des interventions
- *    - Peut modifier les interventions qu'elle a créées (si non assignées)
- *    - Peut bloquer/débloquer des chambres
- *    - Lecture seule pour le reste
- * 
- * 4. technician (Technicien)
- *    - Peut voir toutes les interventions
- *    - Peut modifier les interventions qui lui sont assignées
- *    - Peut ajouter des messages et photos
- *    - Lecture seule pour le reste
- * 
- * EXEMPLES DE CAS D'USAGE:
- * 
- * - Un technicien NE PEUT PAS modifier une intervention d'un autre technicien
- * - Un réceptionniste NE PEUT PAS modifier une intervention déjà assignée
- * - Seul un SuperAdmin peut créer/supprimer des comptes utilisateurs
- * - Les utilisateurs inactifs (active: false) n'ont AUCUN accès
- */
-
-// ===============================================
-// 🔍 TESTING DES RÈGLES
-// ===============================================
-/*
- * COMMANDES FIREBASE CLI:
- * 
- * # Déployer les règles
- * firebase deploy --only firestore:rules
- * 
- * # Tester les règles localement
- * firebase emulators:start --only firestore
- * 
- * # Simulateur de règles (Firebase Console)
- * https://console.firebase.google.com/project/[PROJECT]/firestore/rules
- * 
- * EXEMPLES DE TESTS:
- * 
- * Test 1: Technicien lit une intervention
- * ✅ GET /interventions/ABC123
- *    auth: { uid: 'tech1', token: { role: 'technician', active: true } }
- * 
- * Test 2: Réception crée une intervention
- * ✅ CREATE /interventions/ABC124
- *    auth: { uid: 'recep1', token: { role: 'reception', active: true } }
- *    data: { missionSummary: 'Test', status: 'todo', createdBy: 'recep1' }
- * 
- * Test 3: Utilisateur inactif tente de lire
- * ❌ GET /interventions/ABC123
- *    auth: { uid: 'user1', token: { role: 'technician', active: false } }
- * 
- * Test 4: Technicien tente de modifier l'intervention d'un autre
- * ❌ UPDATE /interventions/ABC123
- *    auth: { uid: 'tech1' }
- *    existing.assignedTo: 'tech2'
- */
-
-// ===============================================
-// ⚠️ AVERTISSEMENTS
-// ===============================================
-/*
- * IMPORTANT:
- * 
- * 1. ✅ Toujours tester les règles avant de déployer en production
- * 2. ✅ Utiliser les Cloud Functions pour les opérations sensibles
- * 3. ✅ Activer App Check pour protection supplémentaire
- * 4. ✅ Monitorer les erreurs "permission denied" dans Firebase Console
- * 5. ✅ Créer des index Firestore pour les requêtes complexes
- * 6. ⚠️ Ces règles supposent que tous les users ont un document dans /users/
- * 7. ⚠️ Les Cloud Functions doivent bypass ces règles (admin SDK)
- * 
- * PERFORMANCE:
- * 
- * - Les `get()` dans les rules comptent dans les quotas de lecture
- * - Limiter les appels `get()` en utilisant le cache côté client
- * - Pour de meilleures performances, dupliquer le rôle dans le token JWT
- */

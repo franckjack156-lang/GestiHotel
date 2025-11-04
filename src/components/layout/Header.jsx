@@ -1,18 +1,19 @@
-// src/components/layout/Header.jsx - VERSION CORRIGÉE
+// src/components/layout/Header.jsx - VERSION AVEC SÉLECTEUR D'ÉTABLISSEMENT
 import React, { useState } from 'react';
 import { 
   Menu, 
   Search, 
   Bell, 
   Settings,
-  Shield // NOUVEAU : Icône Admin
+  Shield
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import EstablishmentSwitcher from './EstablishmentSwitcher';
 
 const Header = ({ 
   onMenuClick, 
   onLogout,
-  onOpenAdmin, // NOUVEAU: Ouvrir le panneau admin
+  onOpenAdmin,
   onOpenSettings,
   user,
   notificationCount = 0
@@ -34,8 +35,9 @@ const Header = ({
         <button
           onClick={onMenuClick}
           className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+          aria-label="Menu"
         >
-          <Menu size={24} />
+          <Menu size={24} className="text-gray-600 dark:text-gray-400" />
         </button>
 
         <div className="hidden md:block">
@@ -65,7 +67,10 @@ const Header = ({
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
         
-        {/* NOUVEAU: Bouton Admin (SuperAdmin et Manager seulement) */}
+        {/* NOUVEAU: Sélecteur d'établissement */}
+        <EstablishmentSwitcher user={user} />
+
+        {/* Bouton Admin (SuperAdmin et Manager seulement) */}
         {isAdminOrManager && (
           <button
             onClick={onOpenAdmin}
@@ -77,36 +82,45 @@ const Header = ({
           </button>
         )}
 
+        {/* Notifications */}
+        <button
+          className="relative p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+          title="Notifications"
+        >
+          <Bell size={20} className="text-gray-600 dark:text-gray-400" />
+          {notificationCount > 0 && (
+            <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+              {notificationCount > 9 ? '9+' : notificationCount}
+            </span>
+          )}
+        </button>
+
         {/* Paramètres */}
         <button
           onClick={onOpenSettings}
           className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
           title="Paramètres"
         >
-          <Settings size={20} className="text-gray-700 dark:text-gray-300" />
+          <Settings size={20} className="text-gray-600 dark:text-gray-400" />
         </button>
 
-        {/* Notifications */}
-        <button className="relative p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
-          <Bell size={20} className="text-gray-700 dark:text-gray-300" />
-          {notificationCount > 0 && (
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-          )}
-        </button>
-
-        {/* User Avatar */}
-        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-          <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold text-sm">
-            {user?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
-          </div>
-          <div className="hidden md:block">
+        {/* Profil utilisateur */}
+        <div className="flex items-center gap-3 pl-3 border-l border-gray-200 dark:border-gray-700">
+          <div className="hidden sm:block text-right">
             <p className="text-sm font-medium text-gray-900 dark:text-white">
-              {user?.name || user?.email || 'Utilisateur'}
+              {user?.name || 'Utilisateur'}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-              {userRole}
+              {user?.role || 'reception'}
             </p>
           </div>
+          <button
+            onClick={onLogout}
+            className="flex items-center justify-center w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition"
+            title="Se déconnecter"
+          >
+            {(user?.name || 'U')[0].toUpperCase()}
+          </button>
         </div>
       </div>
     </header>
