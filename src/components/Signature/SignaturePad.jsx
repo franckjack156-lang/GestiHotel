@@ -12,6 +12,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import SignatureCanvas from 'react-signature-canvas';
+import toast from 'react-hot-toast';
 
 /**
  * Pad de signature électronique
@@ -82,12 +83,12 @@ const SignaturePad = ({
   // Valider et sauvegarder
   const handleValidate = async () => {
     if (isEmpty) {
-      alert('Veuillez signer avant de valider');
+      toast.error('Veuillez signer avant de valider');
       return;
     }
 
     if (!formData.acceptTerms) {
-      alert('Vous devez accepter les conditions');
+      toast.error('Vous devez accepter les conditions');
       return;
     }
 
@@ -117,12 +118,28 @@ const SignaturePad = ({
   };
 
   // Obtenir l'IP (pour audit)
+  // Note: Collection d'IP désactivée pour conformité RGPD
+  // Réactiver uniquement avec consentement explicite de l'utilisateur
   const getIPAddress = async () => {
     try {
-      const response = await fetch('https://api.ipify.org?format=json');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // Timeout 3s
+
+      const response = await fetch('https://api.ipify.org?format=json', {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
-      return data.ip;
-    } catch {
+      return data.ip || 'Unknown';
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Impossible de récupérer l\'IP:', error.message);
+      }
       return 'Unknown';
     }
   };

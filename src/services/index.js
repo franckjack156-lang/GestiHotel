@@ -1,25 +1,25 @@
 // src/services/index.js - SERVICE UNIFIÉ CENTRALISÉ CORRIGÉ
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  doc, 
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  doc,
   deleteDoc,
-  serverTimestamp, 
-  query, 
-  where, 
-  getDocs, 
+  serverTimestamp,
+  query,
+  where,
+  getDocs,
   getDoc,
   orderBy
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { 
-  signInWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged 
+import {
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged
 } from 'firebase/auth';
-import { db, storage, auth } from '../config/firebase';
+import { getDb, storage, auth } from '../config/firebase';
 
 // ==========================================
 // 🔐 AUTH SERVICE
@@ -92,8 +92,9 @@ export const authService = {
 
   async getUserData(uid) {
     try {
+      const db = await getDb();
       const userDoc = await getDoc(doc(db, 'users', uid));
-      
+
       if (!userDoc.exists()) {
         return null;
       }
@@ -120,8 +121,9 @@ export const authService = {
 export const userService = {
   async getAll(establishmentId = null) {
     try {
+      const db = await getDb();
       let q;
-      
+
       if (establishmentId) {
         q = query(
           collection(db, 'users'),
@@ -148,6 +150,7 @@ export const userService = {
 
   async getById(userId) {
     try {
+      const db = await getDb();
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (userDoc.exists()) {
         return { id: userDoc.id, ...userDoc.data() };
@@ -161,6 +164,7 @@ export const userService = {
 
   async update(userId, data) {
     try {
+      const db = await getDb();
       await updateDoc(doc(db, 'users', userId), {
         ...data,
         updatedAt: serverTimestamp()
@@ -174,6 +178,7 @@ export const userService = {
 
   async delete(userId) {
     try {
+      const db = await getDb();
       await deleteDoc(doc(db, 'users', userId));
       return { success: true };
     } catch (error) {
@@ -189,6 +194,7 @@ export const userService = {
 export const establishmentService = {
   async getAll() {
     try {
+      const db = await getDb();
       const q = query(
         collection(db, 'establishments'),
         orderBy('name', 'asc')
@@ -207,6 +213,7 @@ export const establishmentService = {
 
   async getById(establishmentId) {
     try {
+      const db = await getDb();
       const estabDoc = await getDoc(doc(db, 'establishments', establishmentId));
       if (estabDoc.exists()) {
         return { id: estabDoc.id, ...estabDoc.data() };
@@ -220,6 +227,7 @@ export const establishmentService = {
 
   async create(data) {
     try {
+      const db = await getDb();
       const docRef = await addDoc(collection(db, 'establishments'), {
         ...data,
         createdAt: serverTimestamp(),
@@ -234,6 +242,7 @@ export const establishmentService = {
 
   async update(establishmentId, data) {
     try {
+      const db = await getDb();
       await updateDoc(doc(db, 'establishments', establishmentId), {
         ...data,
         updatedAt: serverTimestamp()
@@ -247,6 +256,7 @@ export const establishmentService = {
 
   async delete(establishmentId) {
     try {
+      const db = await getDb();
       await deleteDoc(doc(db, 'establishments', establishmentId));
       return { success: true };
     } catch (error) {
@@ -262,8 +272,9 @@ export const establishmentService = {
 export const technicianService = {
   async getAll(establishmentId = null) {
     try {
+      const db = await getDb();
       let q;
-      
+
       if (establishmentId) {
         q = query(
           collection(db, 'technicians'),
@@ -292,6 +303,7 @@ export const technicianService = {
 
   async getById(technicianId) {
     try {
+      const db = await getDb();
       const techDoc = await getDoc(doc(db, 'technicians', technicianId));
       if (techDoc.exists()) {
         return { id: techDoc.id, ...techDoc.data() };
@@ -305,8 +317,9 @@ export const technicianService = {
 
   async findByName(name, establishmentId = null) {
     try {
+      const db = await getDb();
       let q;
-      
+
       if (establishmentId) {
         q = query(
           collection(db, 'technicians'),
@@ -336,6 +349,7 @@ export const technicianService = {
 
   async create(data) {
     try {
+      const db = await getDb();
       const docRef = await addDoc(collection(db, 'technicians'), {
         ...data,
         createdAt: serverTimestamp(),
@@ -355,8 +369,9 @@ export const technicianService = {
 export const locationService = {
   async getAll(establishmentId = null) {
     try {
+      const db = await getDb();
       let q;
-      
+
       if (establishmentId) {
         q = query(
           collection(db, 'locations'),
@@ -385,6 +400,7 @@ export const locationService = {
 
   async create(data) {
     try {
+      const db = await getDb();
       const docRef = await addDoc(collection(db, 'locations'), {
         ...data,
         createdAt: serverTimestamp(),

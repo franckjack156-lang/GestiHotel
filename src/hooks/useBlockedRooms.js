@@ -15,7 +15,7 @@ import {
   serverTimestamp,
   getDocs
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { toast } from '../utils/toast';
 
 export const useBlockedRooms = (user) => {
@@ -32,13 +32,15 @@ export const useBlockedRooms = (user) => {
 
     console.log('🔄 useBlockedRooms: Démarrage écoute Firebase');
 
-    const q = query(
-      collection(db, 'blockedRooms'),
-      where('blocked', '==', true),
-      orderBy('blockedAt', 'desc')
-    );
+    const setupListener = async () => {
+      const db = await getDb();
+      const q = query(
+        collection(db, 'blockedRooms'),
+        where('blocked', '==', true),
+        orderBy('blockedAt', 'desc')
+      );
 
-    const unsubscribe = onSnapshot(
+      const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         const rooms = snapshot.docs.map(doc => ({
@@ -60,9 +62,16 @@ export const useBlockedRooms = (user) => {
       }
     );
 
+      return unsubscribe;
+    };
+
+    const unsubscribePromise = setupListener();
+
     return () => {
       console.log('🛑 useBlockedRooms: Arrêt écoute Firebase');
-      unsubscribe();
+      unsubscribePromise.then(unsub => {
+        if (unsub) unsub();
+      });
     };
   }, [user]);
 
@@ -73,6 +82,7 @@ export const useBlockedRooms = (user) => {
     try {
       console.log('🔒 Blocage chambre:', { roomNumber, reason, interventionId });
 
+      const db = await getDb();
       const newBlock = {
         room: roomNumber,
         reason: reason || 'Aucune raison spécifiée',
@@ -103,6 +113,7 @@ export const useBlockedRooms = (user) => {
     try {
       console.log('🔓 Déblocage chambre:', roomNumber);
 
+      const db = await getDb();
       // Trouver le document de blocage actif
       const q = query(
         collection(db, 'blockedRooms'),

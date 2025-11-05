@@ -21,71 +21,113 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-console.log('🔥 Initialisation Firebase 12...');
+if (import.meta.env.DEV) {
+  console.log('🔥 Initialisation Firebase 12...');
+}
 
 // Initialiser l'app
 const app = initializeApp(firebaseConfig);
-console.log('✅ App initialisée');
+
+if (import.meta.env.DEV) {
+  console.log('✅ App initialisée');
+}
 
 // Auth
 const auth = getAuth(app);
-console.log('✅ Auth initialisée');
+
+if (import.meta.env.DEV) {
+  console.log('✅ Auth initialisée');
+}
 
 // Storage
 const storage = getStorage(app);
-console.log('✅ Storage initialisée');
+
+if (import.meta.env.DEV) {
+  console.log('✅ Storage initialisée');
+}
 
 // Functions
 const functions = getFunctions(app);
-console.log('✅ Functions initialisées');
+
+if (import.meta.env.DEV) {
+  console.log('✅ Functions initialisées');
+}
 
 // ✅ FIRESTORE: Import dynamique avec fallback
 let db = null;
+let dbInitPromise = null;
 
 const initFirestore = async () => {
-  try {
-    // Essayer avec la nouvelle API
-    const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } = 
-      await import('firebase/firestore');
-    
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      })
-    });
-    console.log('✅ Firestore initialisée (avec cache)');
-    return db;
-  } catch (error) {
-    console.warn('⚠️ Erreur init avec cache:', error.message);
-    
-    // Fallback: sans cache
+  // Si déjà initialisé, retourner l'instance
+  if (db) return db;
+
+  // Si initialisation en cours, attendre la promesse existante
+  if (dbInitPromise) return dbInitPromise;
+
+  // Créer une nouvelle promesse d'initialisation
+  dbInitPromise = (async () => {
     try {
-      const { getFirestore } = await import('firebase/firestore');
-      db = getFirestore(app);
-      console.log('✅ Firestore initialisée (sans cache)');
+      // Essayer avec la nouvelle API
+      const { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } =
+        await import('firebase/firestore');
+
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager()
+        })
+      });
+
+      if (import.meta.env.DEV) {
+        console.log('✅ Firestore initialisée (avec cache)');
+      }
       return db;
-    } catch (fallbackError) {
-      console.error('❌ Erreur Firestore complète:', fallbackError);
-      throw new Error('Impossible d\'initialiser Firestore: ' + fallbackError.message);
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('⚠️ Erreur init avec cache:', error.message);
+      }
+
+      // Fallback: sans cache
+      try {
+        const { getFirestore } = await import('firebase/firestore');
+        db = getFirestore(app);
+
+        if (import.meta.env.DEV) {
+          console.log('✅ Firestore initialisée (sans cache)');
+        }
+        return db;
+      } catch (fallbackError) {
+        console.error('❌ Erreur Firestore complète:', fallbackError);
+        throw new Error('Impossible d\'initialiser Firestore: ' + fallbackError.message);
+      }
     }
-  }
+  })();
+
+  return dbInitPromise;
 };
 
-// Initialiser Firestore de manière asynchrone
+// Initialiser Firestore immédiatement
 initFirestore().catch(err => {
   console.error('❌ Init Firestore échouée:', err);
 });
 
 // ✅ Getter pour db (attend que l'init soit terminée)
-const getDb = () => {
+const getDb = async () => {
   if (!db) {
-    throw new Error('Firestore n\'est pas encore initialisée. Utilisez await initFirestore() d\'abord.');
+    await initFirestore();
+  }
+  return db;
+};
+
+// ✅ Getter synchrone pour compatibilité (lance une erreur si pas initialisé)
+const getDbSync = () => {
+  if (!db) {
+    throw new Error('Firestore n\'est pas encore initialisée. Utilisez await getDb() ou await initFirestore().');
   }
   return db;
 };
 
 // Export
-export { app, auth, storage, functions, getDb, initFirestore };
+export { app, auth, storage, functions, getDb, getDbSync, initFirestore };
 export { db }; // Pour compatibilité, mais préférer getDb()
 
 // ===================================
@@ -101,18 +143,26 @@ export const initializeMessaging = async () => {
     const { getMessaging, isSupported } = await import('firebase/messaging');
     const supported = await isSupported();
     if (!supported) {
-      console.warn('⚠️ FCM non supporté');
+      if (import.meta.env.DEV) {
+        console.warn('⚠️ FCM non supporté');
+      }
       return null;
     }
     if (!vapidKey) {
-      console.warn('⚠️ VAPID Key manquante');
+      if (import.meta.env.DEV) {
+        console.warn('⚠️ VAPID Key manquante');
+      }
       return null;
     }
     messaging = getMessaging(app);
-    console.log('✅ FCM initialisé');
+    if (import.meta.env.DEV) {
+      console.log('✅ FCM initialisé');
+    }
     return messaging;
   } catch (error) {
-    console.warn('⚠️ Erreur FCM:', error.message);
+    if (import.meta.env.DEV) {
+      console.warn('⚠️ Erreur FCM:', error.message);
+    }
     return null;
   }
 };
@@ -139,7 +189,9 @@ if (typeof window !== 'undefined' && import.meta.env.PROD && firebaseConfig.meas
     .then(({ getAnalytics, logEvent, setUserId, setUserProperties }) => {
       try {
         analytics = getAnalytics(app);
-        console.log('✅ Analytics initialisée');
+        if (import.meta.env.DEV) {
+          console.log('✅ Analytics initialisée');
+        }
         window.__firebaseAnalytics = {
           logEvent,
           setUserId,
@@ -147,7 +199,9 @@ if (typeof window !== 'undefined' && import.meta.env.PROD && firebaseConfig.meas
           instance: analytics
         };
       } catch (error) {
-        console.warn('⚠️ Analytics:', error.message);
+        if (import.meta.env.DEV) {
+          console.warn('⚠️ Analytics:', error.message);
+        }
       }
     })
     .catch(() => {});
@@ -163,7 +217,9 @@ export const logAnalyticsEvent = (eventName, eventParams = {}) => {
         timestamp: new Date().toISOString()
       });
     } catch (error) {
-      console.warn('⚠️ Erreur log analytics:', error.message);
+      if (import.meta.env.DEV) {
+        console.warn('⚠️ Erreur log analytics:', error.message);
+      }
     }
   }
 };
@@ -174,7 +230,9 @@ export const setAnalyticsUser = (userId, userProperties = {}) => {
       window.__firebaseAnalytics.setUserId(analytics, userId);
       window.__firebaseAnalytics.setUserProperties(analytics, userProperties);
     } catch (error) {
-      console.warn('⚠️ Erreur set analytics user:', error.message);
+      if (import.meta.env.DEV) {
+        console.warn('⚠️ Erreur set analytics user:', error.message);
+      }
     }
   }
 };
@@ -236,9 +294,13 @@ if (typeof window !== 'undefined' && import.meta.env.PROD) {
     .then(({ getPerformance }) => {
       try {
         performance = getPerformance(app);
-        console.log('✅ Performance monitoring initialisé');
+        if (import.meta.env.DEV) {
+          console.log('✅ Performance monitoring initialisé');
+        }
       } catch (error) {
-        console.warn('⚠️ Performance:', error.message);
+        if (import.meta.env.DEV) {
+          console.warn('⚠️ Performance:', error.message);
+        }
       }
     })
     .catch(() => {});
@@ -246,8 +308,10 @@ if (typeof window !== 'undefined' && import.meta.env.PROD) {
 
 export { performance };
 
-console.log('');
-console.log('📦 Firebase 12 - Configuration chargée');
-console.log('');
+if (import.meta.env.DEV) {
+  console.log('');
+  console.log('📦 Firebase 12 - Configuration chargée');
+  console.log('');
+}
 
 export default app;

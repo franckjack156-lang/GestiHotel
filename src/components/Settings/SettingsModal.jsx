@@ -135,8 +135,8 @@ const SettingsModal = ({ isOpen, onClose, settings, onUpdateSettings, onResetSet
   ];
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
         {/* ✅ HEADER */}
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex justify-between items-center">

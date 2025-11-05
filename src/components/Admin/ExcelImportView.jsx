@@ -3,6 +3,7 @@ import { useExcelImport } from '../../hooks/useExcelImport';
 import { useAuth } from '../../contexts/AuthContext';
 import ImportValidationModal from '../ImportValidationModal';
 import { Upload, Download, Trash2, FileSpreadsheet, AlertTriangle, CheckCircle, Loader, Database, RefreshCw, Info, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const ExcelImportView = () => {
   const { user } = useAuth();
@@ -31,7 +32,7 @@ const ExcelImportView = () => {
         setFile(selectedFile);
         setResults(null);
       } else {
-        alert('Veuillez sélectionner un fichier CSV ou Excel (.xlsx, .xls)');
+        toast.error('Veuillez sélectionner un fichier CSV ou Excel (.xlsx, .xls)');
       }
     }
   };
@@ -39,7 +40,7 @@ const ExcelImportView = () => {
   // ✅ CORRIGÉ : Utiliser directement analyzeImportData du hook
   const handleAnalyze = async () => {
     if (!file) {
-      alert('Veuillez sélectionner un fichier');
+      toast.error('Veuillez sélectionner un fichier');
       return;
     }
 
@@ -48,22 +49,22 @@ const ExcelImportView = () => {
     try {
       // ✅ Utiliser directement la fonction du hook (pas de re-appel de useExcelImport)
       const result = await analyzeImportData(file);
-      
+
       if (result.success) {
         setParsedDataForValidation(result.parsedData);
         setExistingDropdowns(result.existingDropdowns);
         setShowValidationModal(true);
-        
+
         if (result.errors.length > 0) {
           console.warn('⚠️ Erreurs détectées:', result.errors);
         }
       } else {
-        alert('Erreur lors de l\'analyse: ' + result.error);
+        toast.error('Erreur lors de l\'analyse: ' + result.error);
       }
-      
+
     } catch (error) {
       console.error('❌ Erreur analyse:', error);
-      alert('Erreur lors de l\'analyse: ' + error.message);
+      toast.error('Erreur lors de l\'analyse: ' + error.message);
     } finally {
       setAnalyzing(false);
     }
@@ -91,15 +92,15 @@ const ExcelImportView = () => {
           total: result.total,
           errorDetails: result.errorDetails || []
         });
-        
+
         setFile(null);
       } else {
-        alert('Erreur lors de l\'import: ' + result.error);
+        toast.error('Erreur lors de l\'import: ' + result.error);
       }
-      
+
     } catch (error) {
       console.error('❌ Erreur import:', error);
-      alert('Erreur lors de l\'import: ' + error.message);
+      toast.error('Erreur lors de l\'import: ' + error.message);
     } finally {
       setImporting(false);
     }

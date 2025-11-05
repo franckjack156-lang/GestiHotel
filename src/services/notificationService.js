@@ -14,7 +14,7 @@ import {
   deleteDoc,
   writeBatch
 } from 'firebase/firestore';
-import { db, app } from '../config/firebase';
+import { getDb, app } from '../config/firebase';
 
 // Clé VAPID (à générer dans Firebase Console)
 const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY;
@@ -112,6 +112,7 @@ class NotificationService {
    */
   async saveTokenToFirestore(userId, token) {
     try {
+      const db = await getDb();
       const tokensRef = collection(db, 'fcmTokens');
       
       // Vérifier si le token existe déjà
@@ -147,7 +148,8 @@ class NotificationService {
   async removeToken(userId) {
     try {
       if (!this.currentToken) return true;
-      
+
+      const db = await getDb();
       const tokensRef = collection(db, 'fcmTokens');
       const q = query(
         tokensRef, 
@@ -232,6 +234,7 @@ class NotificationService {
    */
   async createNotification(userId, notificationData) {
     try {
+      const db = await getDb();
       const notification = {
         userId,
         title: notificationData.title,

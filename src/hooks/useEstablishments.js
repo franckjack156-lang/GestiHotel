@@ -10,7 +10,7 @@ import {
   getDoc,
   getDocs
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { useAuth } from '../contexts/AuthContext';
 
 export const useEstablishments = () => {
@@ -33,12 +33,14 @@ export const useEstablishments = () => {
       return;
     }
 
-    const q = query(
-      collection(db, 'establishments'),
-      orderBy('name', 'asc')
-    );
+    const setupListener = async () => {
+      const db = await getDb();
+      const q = query(
+        collection(db, 'establishments'),
+        orderBy('name', 'asc')
+      );
 
-    const unsubscribe = onSnapshot(
+      const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         const establishmentsData = snapshot.docs.map(doc => ({
@@ -59,7 +61,16 @@ export const useEstablishments = () => {
       }
     );
 
-    return () => unsubscribe();
+      return unsubscribe;
+    };
+
+    const unsubscribePromise = setupListener();
+
+    return () => {
+      unsubscribePromise.then(unsub => {
+        if (unsub) unsub();
+      });
+    };
   }, [user]);
 
   // Charger l'établissement actuel de l'utilisateur
@@ -71,6 +82,7 @@ export const useEstablishments = () => {
 
     const loadCurrentEstablishment = async () => {
       try {
+        const db = await getDb();
         const estabDoc = await getDoc(doc(db, 'establishments', user.establishmentId));
         
         if (estabDoc.exists()) {

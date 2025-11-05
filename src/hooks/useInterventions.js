@@ -16,7 +16,7 @@ import {
   getDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, storage } from '../config/firebase';
+import { getDb, storage } from '../config/firebase';
 
 export const useInterventions = (user, options = {}) => {
   const {
@@ -35,58 +35,60 @@ export const useInterventions = (user, options = {}) => {
       return;
     }
 
-    let q;
+    const setupListener = async () => {
+      const db = await getDb();
+      let q;
 
-    // SuperAdmin: voir tous les établissements ou filtrer si un établissement est sélectionné
-    if (user.role === 'superadmin') {
-      if (user.currentEstablishmentId) {
+      // SuperAdmin: voir tous les établissements ou filtrer si un établissement est sélectionné
+      if (user.role === 'superadmin') {
+        if (user.currentEstablishmentId) {
+          q = query(
+            collection(db, 'interventions'),
+            where('establishmentId', '==', user.currentEstablishmentId),
+            orderBy('createdAt', 'desc'),
+            limit(pageSize)
+          );
+        } else {
+          q = query(
+            collection(db, 'interventions'),
+            orderBy('createdAt', 'desc'),
+            limit(pageSize)
+          );
+        }
+      }
+      // Technicien: ses interventions assignées dans son établissement
+      else if (user.role === 'technician') {
+        if (!user.establishmentId) {
+          setInterventions([]);
+          setLoading(false);
+          return;
+        }
+
         q = query(
           collection(db, 'interventions'),
-          where('establishmentId', '==', user.currentEstablishmentId),
+          where('establishmentId', '==', user.establishmentId),
+          where('assignedTo', '==', user.uid),
           orderBy('createdAt', 'desc'),
           limit(pageSize)
         );
-      } else {
+      }
+      // Autres rôles: toutes les interventions de leur établissement
+      else {
+        if (!user.establishmentId) {
+          setInterventions([]);
+          setLoading(false);
+          return;
+        }
+
         q = query(
           collection(db, 'interventions'),
+          where('establishmentId', '==', user.establishmentId),
           orderBy('createdAt', 'desc'),
           limit(pageSize)
         );
       }
-    } 
-    // Technicien: ses interventions assignées dans son établissement
-    else if (user.role === 'technician') {
-      if (!user.establishmentId) {
-        setInterventions([]);
-        setLoading(false);
-        return;
-      }
-      
-      q = query(
-        collection(db, 'interventions'),
-        where('establishmentId', '==', user.establishmentId),
-        where('assignedTo', '==', user.uid),
-        orderBy('createdAt', 'desc'),
-        limit(pageSize)
-      );
-    } 
-    // Autres rôles: toutes les interventions de leur établissement
-    else {
-      if (!user.establishmentId) {
-        setInterventions([]);
-        setLoading(false);
-        return;
-      }
 
-      q = query(
-        collection(db, 'interventions'),
-        where('establishmentId', '==', user.establishmentId),
-        orderBy('createdAt', 'desc'),
-        limit(pageSize)
-      );
-    }
-
-    const unsubscribe = onSnapshot(
+      const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         const interventionsData = snapshot.docs.map(doc => ({
@@ -107,12 +109,22 @@ export const useInterventions = (user, options = {}) => {
       }
     );
 
-    return () => unsubscribe();
+      return unsubscribe;
+    };
+
+    const unsubscribePromise = setupListener();
+
+    return () => {
+      unsubscribePromise.then(unsub => {
+        if (unsub) unsub();
+      });
+    };
   }, [user, autoRefresh, pageSize, user?.currentEstablishmentId]);
 
   // Créer une intervention
   const createIntervention = useCallback(async (data) => {
     try {
+      const db = await getDb();
       const intervention = {
         ...data,
         establishmentId: user.establishmentId || user.currentEstablishmentId,
@@ -144,6 +156,7 @@ export const useInterventions = (user, options = {}) => {
   // Mettre à jour une intervention
   const updateIntervention = useCallback(async (id, updates) => {
     try {
+      const db = await getDb();
       const interventionRef = doc(db, 'interventions', id);
       
       await updateDoc(interventionRef, {
@@ -168,6 +181,7 @@ export const useInterventions = (user, options = {}) => {
         return { success: false, error: 'Permission refusée' };
       }
 
+      const db = await getDb();
       await deleteDoc(doc(db, 'interventions', id));
       return { success: true };
     } catch (error) {
@@ -179,6 +193,7 @@ export const useInterventions = (user, options = {}) => {
   // Ajouter un message
   const addMessage = useCallback(async (interventionId, message) => {
     try {
+      const db = await getDb();
       const interventionRef = doc(db, 'interventions', interventionId);
       const interventionSnap = await getDoc(interventionRef);
       
@@ -219,6 +234,7 @@ export const useInterventions = (user, options = {}) => {
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
 
+      const db = await getDb();
       const interventionRef = doc(db, 'interventions', interventionId);
       const interventionSnap = await getDoc(interventionRef);
       
@@ -255,6 +271,7 @@ export const useInterventions = (user, options = {}) => {
       const storageRef = ref(storage, photoUrl);
       await deleteObject(storageRef);
 
+      const db = await getDb();
       const interventionRef = doc(db, 'interventions', interventionId);
       const interventionSnap = await getDoc(interventionRef);
       

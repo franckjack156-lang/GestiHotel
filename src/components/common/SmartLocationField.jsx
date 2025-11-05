@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Plus, Check, X, Loader } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 /**
  * Champ de localisation intelligent avec :
@@ -92,7 +93,7 @@ const SmartLocationField = ({
     );
     
     if (exists) {
-      alert('Cette localisation existe déjà');
+      toast.error('Cette localisation existe déjà');
       return;
     }
     
@@ -113,7 +114,7 @@ const SmartLocationField = ({
       }
     } catch (error) {
       console.error('Erreur ajout localisation:', error);
-      alert('Erreur lors de l\'ajout de la localisation');
+      toast.error('Erreur lors de l\'ajout de la localisation');
     } finally {
       setIsAdding(false);
     }

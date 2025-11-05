@@ -597,10 +597,10 @@ const InterventionDetailModal = ({
                   {/* Afficher les infos de blocage pour chaque chambre bloquée */}
                   {isCurrentRoomBlocked && blockedRoomsList.length > 0 && !isEditing && (
                     <div className="mt-3 space-y-2">
-                      {blockedRoomsList.map((room, index) => {
+                      {blockedRoomsList.map((room) => {
                         const blockedInfo = blockedRooms.find(br => br.room === room && br.blocked === true);
                         return (
-                          <div key={index} className="p-3 bg-white dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <div key={`blocked-${room}-${blockedInfo?.id || room}`} className="p-3 bg-white dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800">
                             <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
                               Chambre {room}
                             </p>
@@ -633,11 +633,15 @@ const InterventionDetailModal = ({
                           className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
                         >
                           <option value="">Sélectionner...</option>
-                          {dropdowns.locations?.map((loc, index) => (
-                            <option key={index} value={typeof loc === 'object' ? loc.value : loc}>
-                              {typeof loc === 'object' ? loc.label : loc}
-                            </option>
-                          ))}
+                          {dropdowns.locations?.map((loc) => {
+                            const value = typeof loc === 'object' ? loc.value : loc;
+                            const label = typeof loc === 'object' ? loc.label : loc;
+                            return (
+                              <option key={`loc-${value}`} value={value}>
+                                {label}
+                              </option>
+                            );
+                          })}
                         </select>
                       ) : (
                         <div className="font-medium text-gray-900 dark:text-white">

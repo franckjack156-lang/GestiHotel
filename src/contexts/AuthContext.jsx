@@ -1,13 +1,13 @@
 // src/contexts/AuthContext.jsx - VERSION CORRIGÉE MULTI-ÉTABLISSEMENTS
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
-  signInWithEmailAndPassword, 
+import {
+  signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { auth, db } from '../config/firebase';
+import { auth, getDb, initFirestore } from '../config/firebase';
 
 const AuthContext = createContext();
 
@@ -21,25 +21,28 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
+          // Attendre que Firestore soit initialisé
+          const db = await getDb();
+
           const userDocRef = doc(db, 'users', firebaseUser.uid);
           const userDoc = await getDoc(userDocRef);
 
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            
+
             const fullUser = {
               uid: firebaseUser.uid,
               email: firebaseUser.email,
               ...userData
             };
-            
+
             setUser(fullUser);
-            
+
             // Charger l'établissement de l'utilisateur
             if (userData.establishmentId) {
               const estabDocRef = doc(db, 'establishments', userData.establishmentId);
               const estabDoc = await getDoc(estabDocRef);
-              
+
               if (estabDoc.exists()) {
                 setCurrentEstablishment({
                   id: estabDoc.id,
@@ -73,6 +76,7 @@ export const AuthProvider = ({ children }) => {
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const db = await getDb();
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -145,7 +149,7 @@ export const AuthProvider = ({ children }) => {
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      
+      const db = await getDb();
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const newUserData = {
         email,
@@ -212,6 +216,7 @@ export const AuthProvider = ({ children }) => {
     if (!user) return;
 
     try {
+      const db = await getDb();
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -242,12 +247,13 @@ export const AuthProvider = ({ children }) => {
 
   const changeEstablishment = async (establishmentId) => {
     if (!user) return { success: false, error: 'Non connecté' };
-    
+
     if (user.role !== 'superadmin') {
       return { success: false, error: 'Permission refusée' };
     }
-    
+
     try {
+      const db = await getDb();
       const estabDocRef = doc(db, 'establishments', establishmentId);
       const estabDoc = await getDoc(estabDocRef);
       

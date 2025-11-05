@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 
 const EstablishmentContext = createContext();
 
@@ -31,7 +31,7 @@ export const EstablishmentProvider = ({ children }) => {
     const loadEstablishment = async () => {
       try {
         console.log('🏢 Chargement établissement:', user.establishmentId);
-        
+        const db = await getDb();
         const estabRef = doc(db, 'establishments', user.establishmentId);
         const estabSnap = await getDoc(estabRef);
 

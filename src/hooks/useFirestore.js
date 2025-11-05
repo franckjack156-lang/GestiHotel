@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
   onSnapshot,
-  getDocs 
+  getDocs
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 
 /**
  * Hook Firestore optimisé avec gestion du cache et des re-renders
@@ -27,21 +27,30 @@ const useFirestore = (collectionName, options = {}) => {
   const [error, setError] = useState(null);
 
   // Mémoïser les filtres pour éviter les re-renders inutiles
+  // Convertir filters en string stable pour comparaison
+  const filtersKey = useMemo(() => {
+    return filters.map(f => `${f[0]}_${f[1]}_${String(f[2])}`).join('|');
+  }, [filters]);
+
   const memoizedFilters = useMemo(() => {
     return filters.map(f => ({
       field: f[0],
       operator: f[1],
       value: f[2]
     }));
-  }, [JSON.stringify(filters)]);
+  }, [filtersKey]);
 
   // Mémoïser les ordres pour éviter les re-renders inutiles
+  const orderByKey = useMemo(() => {
+    return orderByFields.map(o => `${o[0]}_${o[1]}`).join('|');
+  }, [orderByFields]);
+
   const memoizedOrderBy = useMemo(() => {
     return orderByFields.map(o => ({
       field: o[0],
       direction: o[1]
     }));
-  }, [JSON.stringify(orderByFields)]);
+  }, [orderByKey]);
 
   useEffect(() => {
     if (!collectionName) {
@@ -50,69 +59,75 @@ const useFirestore = (collectionName, options = {}) => {
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    let unsubscribe;
 
-    try {
-      // Construire la requête
-      let q = collection(db, collectionName);
+    const initQuery = async () => {
+      setLoading(true);
+      setError(null);
 
-      // Appliquer les filtres
-      memoizedFilters.forEach(filter => {
-        q = query(q, where(filter.field, filter.operator, filter.value));
-      });
+      try {
+        // Attendre que Firestore soit initialisé
+        const db = await getDb();
 
-      // Appliquer les tris
-      memoizedOrderBy.forEach(order => {
-        q = query(q, orderBy(order.field, order.direction));
-      });
+        // Construire la requête
+        let q = collection(db, collectionName);
 
-      // Appliquer la limite
-      if (queryLimit) {
-        q = query(q, limit(queryLimit));
+        // Appliquer les filtres
+        memoizedFilters.forEach(filter => {
+          q = query(q, where(filter.field, filter.operator, filter.value));
+        });
+
+        // Appliquer les tris
+        memoizedOrderBy.forEach(order => {
+          q = query(q, orderBy(order.field, order.direction));
+        });
+
+        // Appliquer la limite
+        if (queryLimit) {
+          q = query(q, limit(queryLimit));
+        }
+
+        if (realtime) {
+          // Écoute en temps réel
+          unsubscribe = onSnapshot(
+            q,
+            (snapshot) => {
+              const items = snapshot.docs.map(doc =>
+                transform({ id: doc.id, ...doc.data() })
+              );
+              setData(items);
+              setLoading(false);
+            },
+            (err) => {
+              console.error(`Erreur Firestore [${collectionName}]:`, err);
+              setError(err.message);
+              setLoading(false);
+            }
+          );
+        } else {
+          // Chargement unique
+          const snapshot = await getDocs(q);
+          const items = snapshot.docs.map(doc =>
+            transform({ id: doc.id, ...doc.data() })
+          );
+          setData(items);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error(`Erreur configuration requête [${collectionName}]:`, err);
+        setError(err.message);
+        setLoading(false);
       }
+    };
 
-      if (realtime) {
-        // Écoute en temps réel
-        const unsubscribe = onSnapshot(
-          q,
-          (snapshot) => {
-            const items = snapshot.docs.map(doc => 
-              transform({ id: doc.id, ...doc.data() })
-            );
-            setData(items);
-            setLoading(false);
-          },
-          (err) => {
-            console.error(`Erreur Firestore [${collectionName}]:`, err);
-            setError(err.message);
-            setLoading(false);
-          }
-        );
+    initQuery();
 
-        return () => unsubscribe();
-      } else {
-        // Chargement unique
-        getDocs(q)
-          .then(snapshot => {
-            const items = snapshot.docs.map(doc => 
-              transform({ id: doc.id, ...doc.data() })
-            );
-            setData(items);
-            setLoading(false);
-          })
-          .catch(err => {
-            console.error(`Erreur Firestore [${collectionName}]:`, err);
-            setError(err.message);
-            setLoading(false);
-          });
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
       }
-    } catch (err) {
-      console.error(`Erreur configuration requête [${collectionName}]:`, err);
-      setError(err.message);
-      setLoading(false);
-    }
-  }, [collectionName, memoizedFilters, memoizedOrderBy, queryLimit, realtime]);
+    };
+  }, [collectionName, memoizedFilters, memoizedOrderBy, queryLimit, realtime, transform]);
 
   return { data, loading, error };
 };

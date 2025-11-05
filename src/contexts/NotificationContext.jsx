@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   limit
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { useAuth } from './AuthContext';
 import { Bell } from 'lucide-react';
 
@@ -34,14 +34,16 @@ export const NotificationProvider = ({ children }) => {
       return;
     }
 
-    const notifQuery = query(
-      collection(db, 'notifications'),
-      where('userId', '==', user.uid),
-      orderBy('createdAt', 'desc'),
-      limit(50)
-    );
+    const setupNotifications = async () => {
+      const db = await getDb();
+      const notifQuery = query(
+        collection(db, 'notifications'),
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      );
 
-    const unsubscribe = onSnapshot(notifQuery, (snapshot) => {
+      const unsubscribe = onSnapshot(notifQuery, (snapshot) => {
       const notifs = [];
       let unread = 0;
 
@@ -68,12 +70,22 @@ export const NotificationProvider = ({ children }) => {
       }
     });
 
-    return () => unsubscribe();
+      return unsubscribe;
+    };
+
+    const unsubscribePromise = setupNotifications();
+
+    return () => {
+      unsubscribePromise.then(unsub => {
+        if (unsub) unsub();
+      });
+    };
   }, [user?.uid]);
 
   // ✅ Créer une notification
   const createNotification = async (notificationData) => {
     try {
+      const db = await getDb();
       const notification = {
         ...notificationData,
         read: false,
@@ -91,6 +103,7 @@ export const NotificationProvider = ({ children }) => {
   // ✅ Marquer comme lue
   const markAsRead = async (notificationId) => {
     try {
+      const db = await getDb();
       await updateDoc(doc(db, 'notifications', notificationId), {
         read: true,
         readAt: serverTimestamp()
@@ -105,10 +118,11 @@ export const NotificationProvider = ({ children }) => {
   // ✅ Marquer toutes comme lues
   const markAllAsRead = async () => {
     try {
+      const db = await getDb();
       const unreadNotifs = notifications.filter(n => !n.read);
-      
+
       await Promise.all(
-        unreadNotifs.map(notif => 
+        unreadNotifs.map(notif =>
           updateDoc(doc(db, 'notifications', notif.id), {
             read: true,
             readAt: serverTimestamp()

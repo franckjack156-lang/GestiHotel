@@ -1,5 +1,5 @@
-// src/components/layout/Sidebar.jsx - VERSION CORRIGÉE
-import React from 'react';
+// src/components/layout/Sidebar.jsx
+import { useCallback } from 'react';
 import { 
   Home, 
   ClipboardList, 
@@ -81,37 +81,42 @@ const Sidebar = ({
     }
   ];
 
-  const filteredNavigation = navigationItems.filter(item => 
+  const filteredNavigation = navigationItems.filter(item =>
     item.roles.includes(userRole)
   );
 
-  const handleItemClick = (itemId) => {
+  const handleItemClick = useCallback((itemId) => {
     if (itemId === 'qr-codes' && onOpenQRCode) {
       onOpenQRCode();
       if (isMobile) onClose();
       return;
-    } else if (itemId === 'templates' && onOpenTemplates) {
+    }
+
+    if (itemId === 'templates' && onOpenTemplates) {
       onOpenTemplates();
       if (isMobile) onClose();
       return;
     }
-    
+
     onViewChange(itemId);
     if (isMobile) onClose();
-  };
+  }, [onOpenQRCode, onOpenTemplates, onViewChange, isMobile, onClose]);
 
-  const toggleSidebar = () => {
+  const toggleSidebar = useCallback(() => {
     if (updateSettings) {
       updateSettings({ ...settings, sidebarCollapsed: !sidebarCollapsed });
     }
-  };
+  }, [updateSettings, settings, sidebarCollapsed]);
 
   const isCollapsed = sidebarCollapsed && !isMobile;
 
   return (
-    <div className={`flex flex-col h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 ${
-      isCollapsed ? 'w-16' : 'w-64'
-    }`}>
+    <aside
+      className={`flex flex-col h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 ${
+        isCollapsed ? 'w-16' : 'w-64'
+      }`}
+      aria-label="Navigation principale"
+    >
       
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
@@ -126,6 +131,7 @@ const Sidebar = ({
           <button
             onClick={onClose}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+            aria-label="Fermer le menu"
           >
             <X size={20} />
           </button>
@@ -133,6 +139,7 @@ const Sidebar = ({
           <button
             onClick={toggleSidebar}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+            aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
           >
             {isCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
           </button>
@@ -223,7 +230,7 @@ const Sidebar = ({
           {!isCollapsed && <span className="text-sm font-medium">Déconnexion</span>}
         </button>
       </div>
-    </div>
+    </aside>
   );
 };
 
