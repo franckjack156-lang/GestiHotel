@@ -1,4 +1,4 @@
-// src/components/layout/Sidebar.jsx - VERSION CORRIGÉE SANS BOUTON ADMIN
+// src/components/layout/Sidebar.jsx - VERSION CORRIGÉE
 import React from 'react';
 import { 
   Home, 
@@ -12,7 +12,8 @@ import {
   Calendar,
   Building2,
   QrCode,
-  FileText
+  FileText,
+  Shield
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../hooks/useSettings';
@@ -21,6 +22,7 @@ const Sidebar = ({
   currentView, 
   onViewChange, 
   onClose,
+  onOpenAdmin,
   isMobile = false,
   onOpenQRCode,
   onOpenTemplates,
@@ -33,15 +35,50 @@ const Sidebar = ({
   const userRole = user?.role || 'reception';
   const userName = user?.name || user?.email || 'Utilisateur';
 
-  // Navigation principale (SANS éléments admin)
+  // Navigation principale
   const navigationItems = [
-    { id: 'dashboard', label: 'Tableau de bord', icon: Home, roles: ['reception', 'technician', 'manager', 'superadmin'] },
-    { id: 'interventions', label: 'Interventions', icon: ClipboardList, roles: ['reception', 'technician', 'manager', 'superadmin'] },
-    { id: 'rooms', label: 'Chambres', icon: Building2, roles: ['reception', 'manager', 'superadmin']},
-    { id: 'planning', label: 'Planning', icon: Calendar, roles: ['manager', 'superadmin'] },
-    { id: 'analytics', label: 'Analytics', icon: BarChart, roles: ['manager', 'superadmin'] },
-    { id: 'qr-codes', label: 'QR Codes', icon: QrCode, roles: ['superadmin', 'manager', 'reception'] },
-    { id: 'templates', label: 'Templates', icon: FileText, roles: ['superadmin', 'manager'] }
+    { 
+      id: 'dashboard', 
+      label: 'Tableau de bord', 
+      icon: Home, 
+      roles: ['reception', 'technician', 'manager', 'superadmin'] 
+    },
+    { 
+      id: 'interventions', 
+      label: 'Interventions', 
+      icon: ClipboardList, 
+      roles: ['reception', 'technician', 'manager', 'superadmin'] 
+    },
+    { 
+      id: 'rooms', 
+      label: 'Chambres', 
+      icon: Building2, 
+      roles: ['reception', 'manager', 'superadmin']
+    },
+    { 
+      id: 'planning', 
+      label: 'Planning', 
+      icon: Calendar, 
+      roles: ['manager', 'superadmin'] 
+    },
+    { 
+      id: 'analytics', 
+      label: 'Analytics', 
+      icon: BarChart, 
+      roles: ['manager', 'superadmin'] 
+    },
+    { 
+      id: 'qr-codes', 
+      label: 'QR Codes', 
+      icon: QrCode, 
+      roles: ['superadmin', 'manager', 'reception'] 
+    },
+    { 
+      id: 'templates', 
+      label: 'Templates', 
+      icon: FileText, 
+      roles: ['superadmin', 'manager'] 
+    }
   ];
 
   const filteredNavigation = navigationItems.filter(item => 
@@ -49,12 +86,12 @@ const Sidebar = ({
   );
 
   const handleItemClick = (itemId) => {
-    if (itemId === 'qr-codes') {
-      onOpenQRCode?.();
+    if (itemId === 'qr-codes' && onOpenQRCode) {
+      onOpenQRCode();
       if (isMobile) onClose();
       return;
-    } else if (itemId === 'templates') {
-      onOpenTemplates?.();
+    } else if (itemId === 'templates' && onOpenTemplates) {
+      onOpenTemplates();
       if (isMobile) onClose();
       return;
     }
@@ -143,6 +180,21 @@ const Sidebar = ({
 
       {/* Footer actions */}
       <div className="p-2 border-t border-gray-200 dark:border-gray-700 space-y-1">
+        
+        {/* Admin (SuperAdmin/Manager uniquement) */}
+        {['superadmin', 'manager'].includes(userRole) && onOpenAdmin && (
+          <button
+            onClick={() => {
+              onOpenAdmin();
+              if (isMobile) onClose();
+            }}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+            title={isCollapsed ? 'Admin' : ''}
+          >
+            <Shield size={20} />
+            {!isCollapsed && <span className="text-sm font-medium">Admin</span>}
+          </button>
+        )}
         
         {/* Settings */}
         <button

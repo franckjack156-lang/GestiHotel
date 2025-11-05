@@ -1,141 +1,118 @@
 // src/components/layout/EstablishmentSwitcher.jsx
-// Composant pour changer d'établissement dans le header
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Building2, Check, ChevronDown } from 'lucide-react';
-import { useMultiEstablishments } from '../../hooks/useMultiEstablishments';
+import { collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { useAuth } from '../../contexts/AuthContext';
 
-const EstablishmentSwitcher = ({ user }) => {
-  const {
-    userEstablishments,
-    currentEstablishment,
-    switchEstablishment,
-    hasMultipleEstablishments,
-    loading
-  } = useMultiEstablishments(user);
-
+const EstablishmentSwitcher = () => {
+  const { user, currentEstablishment, changeEstablishment } = useAuth();
+  const [establishments, setEstablishments] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [switching, setSwitching] = useState(false);
-  const dropdownRef = useRef(null);
+  const [loading, setLoading] = useState(false);
 
-  // Fermer le dropdown si on clique à l'extérieur
+  // Charger les établissements (SuperAdmin uniquement)
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
+    if (user?.role !== 'superadmin') return;
+
+    const loadEstablishments = async () => {
+      try {
+        const q = query(collection(db, 'establishments'), orderBy('name', 'asc'));
+        const snapshot = await getDocs(q);
+        
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        setEstablishments(data);
+      } catch (error) {
+        console.error('Erreur chargement établissements:', error);
       }
     };
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    loadEstablishments();
+  }, [user]);
 
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
+  // Ne pas afficher si pas SuperAdmin
+  if (user?.role !== 'superadmin' || establishments.length === 0) {
+    return null;
+  }
 
-  const handleSwitch = async (establishmentId) => {
-    if (establishmentId === currentEstablishment?.id || switching) return;
-
-    setSwitching(true);
-    const result = await switchEstablishment(establishmentId);
+  const handleSelect = async (establishmentId) => {
+    setLoading(true);
+    const result = await changeEstablishment(establishmentId);
     
     if (result.success) {
       setIsOpen(false);
-      // Recharger la page pour rafraîchir toutes les données
-      window.location.reload();
-    } else {
-      alert('Erreur lors du changement d\'établissement');
+      window.location.reload(); // Recharger pour appliquer les changements
     }
     
-    setSwitching(false);
+    setLoading(false);
   };
 
-  // Si loading ou pas d'établissement, ne rien afficher
-  if (loading || !currentEstablishment) return null;
-
-  // Si un seul établissement, afficher juste le nom (pas de dropdown)
-  if (!hasMultipleEstablishments) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-        <Building2 size={18} className="text-indigo-600 dark:text-indigo-400" />
-        <span className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[150px]">
-          {currentEstablishment.name}
-        </span>
-      </div>
-    );
-  }
-
-  // Plusieurs établissements : afficher le sélecteur
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        disabled={switching}
-        className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition disabled:opacity-50"
+        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+        disabled={loading}
       >
-        <Building2 size={18} className="text-indigo-600 dark:text-indigo-400" />
-        <span className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[150px]">
-          {currentEstablishment.name}
+        <Building2 size={18} className="text-gray-600 dark:text-gray-400" />
+        <span className="text-sm font-medium text-gray-900 dark:text-white">
+          {currentEstablishment?.name || 'Tous les établissements'}
         </span>
         <ChevronDown 
           size={16} 
-          className={`text-gray-500 dark:text-gray-400 transition-transform ${
-            isOpen ? 'rotate-180' : ''
-          }`}
+          className={`text-gray-600 dark:text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} 
         />
       </button>
 
       {isOpen && (
-        <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 py-2">
-          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-              Changer d'établissement
-            </p>
-          </div>
-          
-          <div className="max-h-64 overflow-y-auto">
-            {userEstablishments.map(establishment => {
-              const isCurrent = establishment.id === currentEstablishment.id;
-              
-              return (
+        <>
+          <div 
+            className="fixed inset-0 z-40" 
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-96 overflow-y-auto">
+            <div className="p-2">
+              {/* Option "Tous les établissements" */}
+              <button
+                onClick={() => handleSelect(null)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
+                  !currentEstablishment
+                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <span className="text-sm font-medium">Tous les établissements</span>
+                {!currentEstablishment && <Check size={16} />}
+              </button>
+
+              {/* Liste des établissements */}
+              {establishments.map(estab => (
                 <button
-                  key={establishment.id}
-                  onClick={() => handleSwitch(establishment.id)}
-                  disabled={isCurrent || switching}
-                  className={`w-full flex items-center justify-between px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-50 ${
-                    isCurrent ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''
+                  key={estab.id}
+                  onClick={() => handleSelect(estab.id)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
+                    currentEstablishment?.id === estab.id
+                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
+                  disabled={!estab.active}
                 >
-                  <div className="flex-1 text-left">
-                    <p className={`text-sm font-medium ${
-                      isCurrent 
-                        ? 'text-indigo-600 dark:text-indigo-400' 
-                        : 'text-gray-900 dark:text-white'
-                    }`}>
-                      {establishment.name}
-                    </p>
-                    {establishment.address && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {establishment.address}
-                      </p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{estab.name}</span>
+                    {!estab.active && (
+                      <span className="text-xs text-gray-500">(Inactif)</span>
                     )}
                   </div>
-                  
-                  {isCurrent && (
-                    <Check size={18} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0 ml-2" />
-                  )}
+                  {currentEstablishment?.id === estab.id && <Check size={16} />}
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
-
-          <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700 mt-2">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {userEstablishments.length} établissement{userEstablishments.length > 1 ? 's' : ''} disponible{userEstablishments.length > 1 ? 's' : ''}
-            </p>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );

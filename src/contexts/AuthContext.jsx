@@ -1,11 +1,12 @@
-// src/contexts/AuthContext.jsx - MODIFIÉ POUR MULTI-ÉTABLISSEMENTS
+// src/contexts/AuthContext.jsx - VERSION CORRIGÉE MULTI-ÉTABLISSEMENTS
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword, 
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 
 const AuthContext = createContext();
@@ -93,14 +94,6 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: errorMessage };
       }
 
-      const fullUser = {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email,
-        ...userData
-      };
-
-      setUser(fullUser);
-      
       // Charger l'établissement
       if (userData.establishmentId) {
         const estabDocRef = doc(db, 'establishments', userData.establishmentId);
@@ -114,27 +107,22 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      await updateDoc(userDocRef, {
-        lastLogin: serverTimestamp()
-      });
-
       setLoading(false);
-      return { success: true, user: fullUser };
+      return { success: true };
     } catch (err) {
       setLoading(false);
       let errorMessage;
 
       switch (err.code) {
-        case 'auth/invalid-email':
-          errorMessage = 'Adresse email invalide';
-          break;
-        case 'auth/user-disabled':
-          errorMessage = 'Compte utilisateur désactivé';
-          break;
         case 'auth/user-not-found':
         case 'auth/wrong-password':
-        case 'auth/invalid-credential':
           errorMessage = 'Email ou mot de passe incorrect';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Email invalide';
+          break;
+        case 'auth/user-disabled':
+          errorMessage = 'Compte désactivé';
           break;
         case 'auth/too-many-requests':
           errorMessage = 'Trop de tentatives. Réessayez plus tard.';
@@ -156,7 +144,6 @@ export const AuthProvider = ({ children }) => {
     setError(null);
 
     try {
-      const { createUserWithEmailAndPassword } = await import('firebase/auth');
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
       const userDocRef = doc(db, 'users', userCredential.user.uid);
@@ -241,7 +228,7 @@ export const AuthProvider = ({ children }) => {
           const estabDoc = await getDoc(estabDocRef);
           
           if (estabDoc.exists()) {
-            setCurrentEstablissement({
+            setCurrentEstablishment({
               id: estabDoc.id,
               ...estabDoc.data()
             });
@@ -256,7 +243,6 @@ export const AuthProvider = ({ children }) => {
   const changeEstablishment = async (establishmentId) => {
     if (!user) return { success: false, error: 'Non connecté' };
     
-    // Vérifier que l'utilisateur peut changer d'établissement (superadmin uniquement)
     if (user.role !== 'superadmin') {
       return { success: false, error: 'Permission refusée' };
     }
@@ -274,7 +260,6 @@ export const AuthProvider = ({ children }) => {
         ...estabDoc.data()
       });
       
-      // Optionnel : sauvegarder dans les préférences utilisateur
       const userDocRef = doc(db, 'users', user.uid);
       await updateDoc(userDocRef, {
         currentEstablishmentId: establishmentId

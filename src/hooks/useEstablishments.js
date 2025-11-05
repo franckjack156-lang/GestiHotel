@@ -1,4 +1,4 @@
-// src/hooks/useEstablishments.js
+// src/hooks/useEstablishments.js - VERSION CORRIGÉE
 import { useState, useEffect } from 'react';
 import { 
   collection, 
@@ -7,7 +7,8 @@ import {
   orderBy, 
   onSnapshot,
   doc,
-  getDoc
+  getDoc,
+  getDocs
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -32,8 +33,6 @@ export const useEstablishments = () => {
       return;
     }
 
-    console.log('🏢 useEstablishments: Chargement des établissements');
-
     const q = query(
       collection(db, 'establishments'),
       orderBy('name', 'asc')
@@ -49,13 +48,12 @@ export const useEstablishments = () => {
           updatedAt: doc.data().updatedAt?.toDate?.() || null
         }));
 
-        console.log('✅ Établissements chargés:', establishmentsData.length);
         setEstablishments(establishmentsData);
         setLoading(false);
         setError(null);
       },
       (err) => {
-        console.error('❌ Erreur chargement établissements:', err);
+        console.error('Erreur chargement établissements:', err);
         setError(err.message);
         setLoading(false);
       }
@@ -73,8 +71,6 @@ export const useEstablishments = () => {
 
     const loadCurrentEstablishment = async () => {
       try {
-        console.log('🏢 Chargement établissement:', user.establishmentId);
-        
         const estabDoc = await getDoc(doc(db, 'establishments', user.establishmentId));
         
         if (estabDoc.exists()) {
@@ -82,13 +78,11 @@ export const useEstablishments = () => {
             id: estabDoc.id,
             ...estabDoc.data()
           });
-          console.log('✅ Établissement chargé:', estabDoc.data().name);
         } else {
-          console.warn('⚠️ Établissement non trouvé:', user.establishmentId);
           setCurrentEstablishment(null);
         }
       } catch (err) {
-        console.error('❌ Erreur chargement établissement:', err);
+        console.error('Erreur chargement établissement:', err);
         setCurrentEstablishment(null);
       }
     };
